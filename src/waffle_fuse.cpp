@@ -1069,8 +1069,9 @@ int main(int argc, char* argv[])
     std::string fsopts = "-ofsname=" + optEscape("waffle:" + source) + ",subtype=" + (useAFFS ? "affs" : "vfat");
 #ifdef __APPLE__
     // FUSE-T: Finder shows the volume name; no ._ AppleDouble files, .DS_Store
-    // or extended attributes on an 880K floppy
-    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr";
+    // or extended attributes on an 880K floppy; no NFS attribute cache, which
+    // otherwise shows stale names and directories right after a change
+    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr,noattrcache";
 #endif
     fuse_opt_add_arg(&args, fsopts.c_str());
     if (readOnly) fuse_opt_add_arg(&args, "-oro");
