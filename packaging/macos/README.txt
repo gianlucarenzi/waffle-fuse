@@ -21,7 +21,6 @@ There is no menu bar app yet (disks are not mounted automatically on insert).
    the drive, mounts the inserted floppy under ~/Floppy/<volume name> and opens
    it in the Finder; double-click it again to eject the disk (pending writes
    are completed first, then a notification says the disk can be removed).
-   Close WaffleCopyPRO first: only one program at a time can use the drive.
    Keep "Waffle Floppy.command", waffle-mount.sh and waffle-fuse together.
 
 4. From the Terminal.  The drive is a serial port named /dev/cu.usbserial-* or

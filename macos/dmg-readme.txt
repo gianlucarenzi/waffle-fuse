@@ -21,8 +21,6 @@ file, Write image to disk, Start at login (macOS 13+), Quit.
 
 * Eject from the menu or in the Finder before taking the disk out: pending
   changes are written first, then a notification says it can be removed.
-* Close WaffleCopyPRO while using the app: only one program at a time can use
-  the drive.
 * Floppy images (.adf, .img, .ima): right-click > Open With > Waffle
   DiskFlashback opens them as virtual disks.
 
