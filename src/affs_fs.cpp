@@ -646,6 +646,24 @@ struct AffsFs
         for(uint32_t b:exts) freeBlk(b);
     }
 
+    // Can file 'fhb' be rewritten with 'size' bytes?  0, -ENOSPC or -EIO.
+    // Its current blocks count as free (they are reused).  A file whose block
+    // list cannot be read completely is never rewritten: the unread blocks
+    // would stay allocated forever.
+    int checkSpace(uint32_t fhb, uint64_t size)
+    {
+        const uint32_t bds=isFFS?512u:488u;
+        const uint64_t ndb=size?(size+bds-1)/bds:0;
+        const uint64_t numChunks=ndb?(ndb+HT_SIZE-1)/HT_SIZE:0;
+        const uint64_t needExt=numChunks>1?numChunks-1:0;
+        std::vector<uint32_t> oldExt;
+        bool complete=true;
+        uint32_t oldBlocks=(uint32_t)fileDataBlocks(fhb,&oldExt,&complete).size()+(uint32_t)oldExt.size();
+        if(!complete) return -EIO;
+        if(ndb+needExt > (uint64_t)countFree()+oldBlocks) return -ENOSPC;
+        return 0;
+    }
+
     // Rewrite all file data (free old blocks, alloc new ones, update header & ext blocks)
     int writeFileData(uint32_t fhb, const uint8_t* data, uint32_t size)
     {
@@ -659,14 +677,9 @@ struct AffsFs
         const uint32_t numChunks=ndb?(ndb+PTRS-1)/PTRS:0;
         const uint32_t needExt=numChunks>1?numChunks-1:0;
 
-        // Check for space before touching anything (old blocks become reusable).
-        // Never rewrite a file whose block list cannot be read completely:
-        // the unread blocks would stay allocated forever.
-        std::vector<uint32_t> oldExt;
-        bool complete=true;
-        uint32_t oldBlocks=(uint32_t)fileDataBlocks(fhb,&oldExt,&complete).size()+(uint32_t)oldExt.size();
-        if(!complete) return -EIO;
-        if(ndb+needExt > countFree()+oldBlocks) return -ENOSPC;
+        // Check for space before touching anything
+        int err=checkSpace(fhb,size);
+        if(err) return err;
 
         freeFileDataBlks(fhb);
 
@@ -1037,7 +1050,14 @@ static int affs_write(const char*, const char* buf, size_t size, off_t offset, s
     if(err) return err;
     size_t end=(size_t)offset+size;
     if(end>(size_t)fs->numBlocks*512) return -EFBIG;
-    if(of->data.size()<end) of->data.resize(end,0);
+    // Data reaches the disk on flush/release, but report a full disk now:
+    // over NFS (FUSE-T on macOS) an error on close never reaches the program
+    if(of->data.size()<end)
+    {
+        err=fs->checkSpace(of->block,end);
+        if(err) return err;
+        of->data.resize(end,0);
+    }
     memcpy(of->data.data()+offset,buf,size);
     of->dirty=true;
     fs->shareBuffer(*of);
@@ -1066,6 +1086,11 @@ static int affs_truncate(const char* path, off_t newsz, struct fuse_file_info* f
     {
         int err=fs->ensureLoaded(*of);
         if(err) return err;
+        if((size_t)newsz>of->data.size())
+        {
+            err=fs->checkSpace(of->block,(uint64_t)newsz);
+            if(err) return err;
+        }
         of->data.resize((size_t)newsz,0);
         of->dirty=true;
         fs->shareBuffer(*of);

@@ -32,9 +32,12 @@ if [ "$(uname -s)" = Darwin ]; then
     # stat: GNU stat (coreutils first in PATH) reads -f %d as free inodes
     is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1" 2>/dev/null)" != "$(/usr/bin/stat -f %d "$1/.." 2>/dev/null)" ]; }
     fuse_umount() { umount "$1"; }
+    # FUSE-T lists names decomposed (NFD): compare them in NFC form
+    tree_diff() { "$TEST_PYTHON" "$HERE/treediff.py" "$1" "$2"; }
 else
     is_mounted() { mountpoint -q "$1"; }
     fuse_umount() { fusermount3 -u "$1"; }
+    tree_diff() { diff -r "$1" "$2"; }
 fi
 
 WORK="$(mktemp -d /tmp/waffle-test.XXXXXX)"
@@ -141,9 +144,9 @@ run_suite() {
 
     mount_img "$img" || { bad "$name: mount"; return; }
     check "copy reference tree" cp -r "$WORK/ref/." "$MNT/"
-    check "tree matches while mounted" diff -r "$WORK/ref" "$MNT"
+    check "tree matches while mounted" tree_diff "$WORK/ref" "$MNT"
     check "move/rename/truncate/append/delete" mutate "$MNT" "$WORK/exp"
-    check "modified tree matches while mounted" diff -r "$WORK/exp" "$MNT"
+    check "modified tree matches while mounted" tree_diff "$WORK/exp" "$MNT"
     if [ "$kind" = affs ] && [ "$long" = 0 ]; then
         if touch "$MNT/This name is definitely longer than thirty chars" 2>/dev/null; then
             bad "names > 30 chars must be rejected"
@@ -160,11 +163,11 @@ run_suite() {
         ok "disk full reported"
     fi
     rm -f "$MNT/toobig"
-    check "tree intact after disk full" diff -r "$WORK/exp" "$MNT"
+    check "tree intact after disk full" tree_diff "$WORK/exp" "$MNT"
     check "unmount" umount_img
 
     mount_img "$img" || { bad "$name: remount"; return; }
-    check "tree matches after remount" diff -r "$WORK/exp" "$MNT"
+    check "tree matches after remount" tree_diff "$WORK/exp" "$MNT"
     umount_img
 
     if [ "$kind" = affs ]; then
