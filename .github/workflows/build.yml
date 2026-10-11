@@ -283,6 +283,13 @@ jobs:
           APP="$PWD/dist/Waffle DiskFlashback.app"
           W=$(mktemp -d /tmp/apptest.XXXXXX)
           MNT="$HOME/Floppy/AppTest"
+          show() {
+            echo "--- app log"; cat "$HOME/Library/Logs/WaffleDiskFlashback.log" 2>/dev/null
+            echo "--- ~/Floppy"; ls -la "$HOME/Floppy" 2>/dev/null
+            echo "--- mounts"; mount | grep -v -E '^/dev/disk|devfs|map ' || true
+            echo "--- processes"; pgrep -lf -i waffle || true
+          }
+          trap show EXIT
           ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
           is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
           # "Open With": the app mounts the image as a virtual disk

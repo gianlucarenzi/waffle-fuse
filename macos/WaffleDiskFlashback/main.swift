@@ -39,6 +39,39 @@ let EXIT_OK: Int32 = 0, EXIT_PORT: Int32 = 2, EXIT_NODISK: Int32 = 3, EXIT_UNKNO
 let EXIT_DRIVE: Int32 = 5, EXIT_FILESYSTEM: Int32 = 6, EXIT_REMOVED: Int32 = 7
 let EXIT_REMOVED_DIRTY: Int32 = 8, EXIT_WRITE_ERROR: Int32 = 9
 
+// MARK: - Log
+
+/// ~/Library/Logs/WaffleDiskFlashback.log (Console.app shows it too)
+let logPath = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/WaffleDiskFlashback.log")
+let logQueue = DispatchQueue(label: "log")
+private let logDateFormat: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    return f
+}()
+
+func log(_ message: String) {
+    let line = "\(logDateFormat.string(from: Date())) \(message)\n"
+    logQueue.async {
+        guard let data = line.data(using: .utf8) else { return }
+        if let h = FileHandle(forWritingAtPath: logPath) {
+            h.seekToEndOfFile()
+            h.write(data)
+            h.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: logPath, contents: data)
+        }
+    }
+}
+
+/// Start a new log, keeping the previous one as .old
+func rotateLog() {
+    let fm = FileManager.default
+    try? fm.createDirectory(atPath: (logPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+    try? fm.removeItem(atPath: logPath + ".old")
+    try? fm.moveItem(atPath: logPath, toPath: logPath + ".old")
+}
+
 // MARK: - Helpers
 
 /// 'WAFFLE event=mounted mountpoint=/x y' -> ["event": "mounted", "mountpoint": "/x y"]
@@ -132,25 +165,31 @@ final class Proc {
         process.standardOutput = out
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
+        let name = args.first ?? ""
+        log("run: waffle-fuse \(args.joined(separator: " "))")
         do {
             try process.run()
         } catch {
+            log("cannot run \(waffleBin): \(error.localizedDescription)")
             DispatchQueue.main.async { self.onExit?(127) }
             return
         }
         Thread.detachNewThread { [self] in
             Proc.readLines(err.fileHandleForReading) { line in
+                log("  [\(name)] \(line)")
                 DispatchQueue.main.async { self.stderrTail = Array((self.stderrTail + [line]).suffix(5)) }
             }
         }
         Thread.detachNewThread { [self] in
             Proc.readLines(out.fileHandleForReading) { line in
                 guard let ev = parseEvent(line) else { return }
+                if ev["event"] != "track" { log("  [\(name)] \(line)") }
                 DispatchQueue.main.async { if !self.cancelled { self.onEvent?(ev) } }
             }
             self.process.waitUntilExit()
             let code = self.process.terminationReason == .exit
                 ? self.process.terminationStatus : 128 + self.process.terminationStatus
+            log("  [\(name)] exit \(code)")
             DispatchQueue.main.async { if !self.cancelled { self.onExit?(code) } }
         }
     }
@@ -231,7 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Startup / quit
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        log("Waffle DiskFlashback \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "?") started, driver \(waffleBin)")
         guard FileManager.default.fileExists(atPath: fuseTLibrary) else {
+            log("FUSE-T not installed (\(fuseTLibrary) missing)")
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.messageText = "FUSE-T is not installed"
@@ -287,6 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             while waits.contains(where: { $0.process.isRunning }) && Date() < deadline { usleep(100_000) }
             DispatchQueue.main.async {
                 if let tmp = self.job?.tmp, !tmp.isEmpty { try? FileManager.default.removeItem(atPath: tmp) }
+                log("quit")
+                logQueue.sync {}        // write the last log lines
                 NSApp.reply(toApplicationShouldTerminate: true)
                 exit(0)
             }
@@ -308,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: UI
 
     private func setState(_ s: State, _ tip: String, _ icon: String) {
+        if s != state || tip != tooltip { log("state: \(tip)") }
         state = s
         tooltip = tip
         guard let button = statusItem?.button else { return }
@@ -742,6 +786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Floppy images as virtual disks ("Open With")
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        log("open: \(urls.map { $0.path }.joined(separator: ", "))")
         for url in urls { openImage(url.resolvingSymlinksInPath().path) }
     }
 
@@ -784,6 +829,7 @@ if let bundleID = Bundle.main.bundleIdentifier,
    NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count > 1 {
     exit(0)
 }
+rotateLog()
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
