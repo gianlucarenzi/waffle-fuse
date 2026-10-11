@@ -43,8 +43,9 @@ On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
 [FUSE-T](https://www.fuse-t.org), with the **Waffle DiskFlashback** menu bar app (automatic
 mounting, like the Linux tray daemon) or a one-click launcher: see [macOS](#macos).
 
-On **Windows** (10 1903 or later) the command line driver works with
-[WinFsp](https://winfsp.dev): disks and images appear as drive letters, see [Windows](#windows).
+On **Windows** (10 1903 or later) the driver works with [WinFsp](https://winfsp.dev), with
+the **Waffle DiskFlashback** tray app and an installer: disks and images appear as drive
+letters, see [Windows](#windows).
 
 ## Dependencies
 
