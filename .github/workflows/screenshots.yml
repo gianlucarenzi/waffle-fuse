@@ -2,11 +2,16 @@ name: Screenshots
 
 # Screenshots of the documentation (docs/images/screenshots), taken on real
 # Linux, macOS and Windows desktops of the GitHub runners with the demo images
-# of docs/examples.  Run from the Actions tab; the "screenshots" artifact holds
-# the PNG files to commit.
+# of docs/examples.  Run from the Actions tab (or change the scripts); the
+# "screenshots" artifact holds the PNG files to commit.
 
 on:
   workflow_dispatch:
+  # Also when the screenshot scripts change
+  push:
+    paths:
+      - 'docs/screenshots/**'
+      - '.github/workflows/screenshots.yml'
 
 jobs:
   linux:
