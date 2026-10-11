@@ -26,6 +26,10 @@ Supported formats (auto-detected, including density):
 
 ---
 
+On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
+[FUSE-T](https://www.fuse-t.org), with a one-click mount/eject launcher for the Finder:
+see [macOS](#macos).
+
 ## Dependencies
 
 The graphical installer checks them and shows the correct command for your distribution.
@@ -76,6 +80,8 @@ and Ubuntu, `uucp` on Arch); then you must log in again.
   works with notifications only.
 * **Disk icons on desktop**: GIO-based file managers (Caja, Nautilus, Nemo,
   Thunar, PCManFM). Dolphin (KDE) uses Solid and hasn't been tested.
+* **macOS** 12 or later with FUSE-T: the filesystem tests pass on disk images in CI (macOS 15,
+  Apple Silicon); the drive itself and the Finder have not been tested on a Mac yet.
 
 If you test it on another combination, the result is useful to add here.
 
@@ -123,6 +129,48 @@ git tag v1.0.0 && git push origin v1.0.0
 
 Packaging files are in `packaging/` (`nfpm.yaml` for [nFPM](https://nfpm.goreleaser.com/),
 install/remove scripts, generic `install.sh`).
+
+### macOS
+
+Requirements: macOS 12 or later (Apple Silicon or Intel) and
+[FUSE-T](https://www.fuse-t.org), free for non-commercial use and without a kernel
+extension:
+
+```bash
+brew install macos-fuse-t/homebrew-cask/fuse-t      # or the installer from fuse-t.org
+```
+
+The macOS archive `waffle-fuse-<version>-macos-universal.tar.gz` (one binary for both
+architectures) will be attached to the releases from the next version on. Until then the
+latest build is the `waffle-fuse-packages-macos` artifact of the *Build waffle-fuse* workflow
+in the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab (downloading it
+needs a GitHub login).
+
+Unpack it, then remove the download quarantine (the files are not signed by an Apple
+developer, so macOS refuses to run them otherwise):
+
+```bash
+cd waffle-fuse-*-macos-universal
+xattr -dr com.apple.quarantine .
+```
+
+* **Waffle Floppy.command**: double-click it in the Finder to mount the floppy in the drive
+  under `~/Floppy/<volume name>` and open it; double-click it again to eject the disk
+  (pending writes are completed first). It runs `waffle-mount.sh`, the same one-click
+  script as the Linux menu entries. Close WaffleCopyPRO first: only one program at a time
+  can use the drive.
+* **From the Terminal**: the drive is `/dev/cu.usbserial-*` or `/dev/cu.usbmodem*`
+  (`ls /dev/cu.*`), unmount with `umount`; everything in [Manual use](#manual-use)
+  applies, e.g. `waffle-fuse /dev/cu.usbserial-XXXX --automount ~/Floppy`.
+
+Under macOS the driver mounts with FUSE-T's options for a floppy: volume name shown in
+the Finder, no `._*` AppleDouble files, `.DS_Store` or extended attributes, names in
+composed Unicode form (AmigaDOS names are ISO-8859-1); the Finder and Spotlight folders
+(`.fseventsd`, `.Spotlight-V100`, `.Trashes`...) are refused. There is no menu bar app yet:
+disks are not mounted automatically when inserted.
+
+To build it: install FUSE-T and the command line tools (`xcode-select --install`), then
+`make` (the Makefile finds FUSE-T's libfuse3 in `/usr/local`).
 
 ### Installation from source
 
@@ -373,6 +421,11 @@ python3 -m venv ~/waffle-venv && ~/waffle-venv/bin/pip install amitools pyfatfs 
 XDFTOOL=~/waffle-venv/bin/xdftool XDFSCAN=~/waffle-venv/bin/xdfscan \
 TEST_PYTHON=~/waffle-venv/bin/python make test
 ```
+
+On macOS the tests need FUSE-T and GNU coreutils and dosfstools first in `PATH`
+(`brew install coreutils dosfstools`), as the CI does.  For debugging: `ONLY="FAT 720K"`
+runs a single suite, `WAFFLE_DEBUG=1` mounts with the FUSE trace (`-d`), `LOG_TAIL=N`
+shows N lines of the driver log on each failure.
 
 ---
 
