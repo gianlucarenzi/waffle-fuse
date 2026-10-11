@@ -258,6 +258,36 @@ jobs:
           vtool -show-build waffle-fuse | grep minos
           ./waffle-fuse --help | head -3
 
+      - name: FUSE-T diagnostics
+        # Temporary: trace the operations FUSE-T sends for the cases that
+        # misbehave (long AFFS names, case-only rename, disk full, unmount)
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash {0}
+        run: |
+          export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+          W=$(mktemp -d /tmp/diag.XXXXXX); M="$W/mnt"; mkdir "$M"
+          step() { echo; echo "### $*"; timeout 30 "$@"; echo "rc=$?"; }
+          ./waffle-fuse --format-image "$W/a.adf" ffs dd Diag
+          ./waffle-fuse --image "$W/a.adf" "$M" -f -d > "$W/log" 2>&1 &
+          P=$!
+          for _ in $(seq 100); do [ "$(stat -c %d "$M")" != "$(stat -c %d "$W")" ] && break; sleep 0.1; done
+          mount | grep "$M"
+          step touch "$M/This name is definitely longer than thirty chars"
+          step ls -la "$M"
+          step sh -c "echo hello > '$M/ReadMe.TXT'"
+          step mv "$M/ReadMe.TXT" "$M/readme.txt"
+          step ls -lai "$M"
+          step sh -c "head -c 2000000 /dev/urandom > '$M/toobig'"
+          step ls -la "$M"
+          step rm -f "$M/toobig"
+          step ls -la "$M"
+          step umount "$M"
+          for _ in $(seq 100); do kill -0 $P 2>/dev/null || break; sleep 0.1; done
+          if kill -0 $P 2>/dev/null; then echo "### DRIVER STILL RUNNING after umount"; kill -9 $P; fi
+          echo; echo "=== driver log ($(wc -l < "$W/log") lines)"
+          grep -vE '^\s*$' "$W/log" | head -600
+
       - name: Filesystem tests (disk images through FUSE-T)
         timeout-minutes: 15
         run: |

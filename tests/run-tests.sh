@@ -48,7 +48,11 @@ cleanup() {
 trap cleanup EXIT
 
 ok()   { echo "  ok   $*"; PASS=$((PASS+1)); }
-bad()  { echo "  FAIL $*"; FAIL=$((FAIL+1)); }
+bad()  {
+    echo "  FAIL $*"; FAIL=$((FAIL+1))
+    [ -s "$WORK/fuse.log" ] && { echo "       --- driver log:"; tail -15 "$WORK/fuse.log" | sed 's/^/       /'; }
+    return 0
+}
 check() { local what="$1"; shift; if "$@" >"$WORK/check.out" 2>&1; then ok "$what"; else bad "$what"; sed 's/^/       /' "$WORK/check.out" | head -20; fi; }
 
 mount_img() {
@@ -66,6 +70,16 @@ mount_img() {
 
 umount_img() {
     fuse_umount "$MNT"
+    # The driver must exit once unmounted: give it 20 s, then kill it
+    for _ in $(seq 200); do
+        kill -0 "$PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "       driver still running 20 s after unmount: killed"
+        kill -9 "$PID"; wait "$PID" 2>/dev/null; PID=
+        return 1
+    fi
     wait "$PID"
     local rc=$?
     PID=
@@ -105,7 +119,8 @@ mutate() {
         head -c 777 /dev/zero >> "$m/big40k" &&
         truncate -s 100 "$m/big150k.bin" &&
         truncate -s 3000 "$m/f487" &&
-        mv "$m/ReadMe.TXT" "$m/readme.txt" &&
+        # case-only rename in two steps: macOS sees one file under both names
+        mv "$m/ReadMe.TXT" "$m/readme.tmp" && mv "$m/readme.tmp" "$m/readme.txt" &&
         mkdir "$m/tmpdir" && rmdir "$m/tmpdir" &&
         rm "$m/many/Entry number 7.txt" &&
         mv "$m/many/Entry number 8.txt" "$m/many/Renamed eight.txt" || return 1
