@@ -233,7 +233,7 @@ jobs:
           ls -l /usr/local/lib/libfuse3* /usr/local/include/fuse3/fuse.h
           brew install coreutils dosfstools
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
+          "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs "setuptools<81" || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
 
       - name: Build universal binary
         # One architecture at a time, then lipo: dependency files (-MMD) do not

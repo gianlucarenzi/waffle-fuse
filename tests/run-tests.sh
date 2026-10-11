@@ -154,7 +154,11 @@ run_suite() {
     # Disk full: the copy must fail cleanly and leave a consistent filesystem
     local avail; avail=$(df --output=avail -B1 "$MNT" | tail -1)
     mkfile "$WORK/toobig" $((avail + 20000))
-    if cp "$WORK/toobig" "$MNT/toobig" 2>/dev/null; then bad "disk full reported"; else ok "disk full reported"; fi
+    if cp "$WORK/toobig" "$MNT/toobig" 2>/dev/null; then
+        bad "disk full reported (df avail $avail bytes, copied $(stat -c %s "$MNT/toobig" 2>/dev/null) of $((avail + 20000)))"
+    else
+        ok "disk full reported"
+    fi
     rm -f "$MNT/toobig"
     check "tree intact after disk full" diff -r "$WORK/exp" "$MNT"
     check "unmount" umount_img

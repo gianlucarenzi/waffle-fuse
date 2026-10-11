@@ -1110,9 +1110,10 @@ int main(int argc, char* argv[])
     // FUSE-T: Finder shows the volume name; no ._ AppleDouble files, .DS_Store
     // or extended attributes on an 880K floppy.  FUSE-T serves the mount over
     // NFS, whose clients keep file handles indefinitely: with noforget libfuse
-    // never reuses an inode number for another file (as libfuse recommends for
-    // NFS exports), otherwise renamed files went missing and names mixed up.
-    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr,noforget";
+    // never reuses an inode number for another file, as libfuse recommends for
+    // NFS exports.  nfc: names in composed form (the Finder may send "a" plus a
+    // combining accent), which AmigaDOS Latin-1 names need, both ways.
+    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr,noforget,nfc";
 #endif
     fuse_opt_add_arg(&args, fsopts.c_str());
     if (readOnly) fuse_opt_add_arg(&args, "-oro");
