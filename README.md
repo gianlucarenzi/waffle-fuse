@@ -27,8 +27,8 @@ Supported formats (auto-detected, including density):
 ---
 
 On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
-[FUSE-T](https://www.fuse-t.org), with a one-click mount/eject launcher for the Finder:
-see [macOS](#macos).
+[FUSE-T](https://www.fuse-t.org), with the **Waffle DiskFlashback** menu bar app (automatic
+mounting, like the Linux tray daemon) or a one-click launcher: see [macOS](#macos).
 
 ## Dependencies
 
@@ -81,7 +81,10 @@ and Ubuntu, `uucp` on Arch); then you must log in again.
 * **Disk icons on desktop**: GIO-based file managers (Caja, Nautilus, Nemo,
   Thunar, PCManFM). Dolphin (KDE) uses Solid and hasn't been tested.
 * **macOS** 12 or later with FUSE-T: the filesystem tests pass on disk images in CI (macOS 15,
-  Apple Silicon); the drive itself and the Finder have not been tested on a Mac yet.
+  Apple Silicon), and so does the menu bar app test (an image opened through it, written and
+  unmounted on quit) with the app started from the shell. Started from the Finder, the app
+  could not mount in CI (an NFS mount from the runners' GUI session fails); the drive, the
+  Finder and the app started normally have not been tested on a Mac yet.
 
 If you test it on another combination, the result is useful to add here.
 
@@ -140,14 +143,45 @@ extension:
 brew install macos-fuse-t/homebrew-cask/fuse-t      # or the installer from fuse-t.org
 ```
 
-The macOS archive `waffle-fuse-<version>-macos-universal.tar.gz` (one binary for both
-architectures) will be attached to the releases from the next version on. Until then the
-latest build is the `waffle-fuse-packages-macos` artifact of the *Build waffle-fuse* workflow
-in the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab (downloading it
-needs a GitHub login).
+Two downloads, both universal (one binary for Apple Silicon and Intel), attached to the
+releases from the next version on; until then the latest build is the
+`waffle-fuse-packages-macos` artifact of the *Build waffle-fuse* workflow in the
+[Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab (downloading it needs
+a GitHub login):
 
-Unpack it, then remove the download quarantine (the files are not signed by an Apple
-developer, so macOS refuses to run them otherwise):
+* `Waffle-DiskFlashback-<version>.dmg`: the menu bar app, with the driver inside;
+* `waffle-fuse-<version>-macos-universal.tar.gz`: the command line driver and a one-click
+  launcher.
+
+The files are not signed by an Apple developer, so macOS refuses to open them the first
+time: see below.
+
+#### Waffle DiskFlashback (menu bar app)
+
+The macOS counterpart of the Linux tray daemon. Open the `.dmg` and drag
+**Waffle DiskFlashback** onto Applications. The first time macOS refuses to open it: go to
+System Settings → Privacy & Security and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine "/Applications/Waffle DiskFlashback.app"`. Allow the
+permissions macOS asks for when the first disk is mounted.
+
+A floppy icon appears in the menu bar: grey while waiting for a disk, orange while reading,
+blue when a disk is mounted. Insert a disk and it is mounted under
+`~/Floppy/<volume name>` and opened in the Finder; take it out and it is unmounted. The
+menu has the same items as the [tray menu](#the-tray-menu) on Linux (Open, Eject, Mount
+again, Copy disk to image file…, Write image to disk…), plus **Start at login**
+(macOS 13 and later) and **Quit**, which unmounts cleanly first.
+
+* **Floppy images**: right-click an `.adf`, `.img` or `.ima` file → Open With → Waffle
+  DiskFlashback opens it as a virtual disk (the emulator stays the default application).
+* **Where disks are mounted**: `~/Floppy`, or another directory with
+  `defaults write io.github.gianlucarenzi.waffle-diskflashback MountDir <directory>`.
+* **Log**: `~/Library/Logs/WaffleDiskFlashback.log` (driver runs, their messages and exit
+  codes); start the app with `WAFFLE_DEBUG=1` in the environment for the FUSE trace.
+* **Driver**: `"/Applications/Waffle DiskFlashback.app/Contents/MacOS/waffle-fuse"`.
+
+#### Command line driver and launcher
+
+Unpack the `.tar.gz`, then remove the download quarantine:
 
 ```bash
 cd waffle-fuse-*-macos-universal
@@ -162,14 +196,19 @@ xattr -dr com.apple.quarantine .
   (`ls /dev/cu.*`), unmount with `umount`; everything in [Manual use](#manual-use)
   applies, e.g. `waffle-fuse /dev/cu.usbserial-XXXX --automount ~/Floppy`.
 
-Under macOS the driver mounts with FUSE-T's options for a floppy: volume name shown in
-the Finder, no `._*` AppleDouble files, `.DS_Store` or extended attributes, names in
-composed Unicode form (AmigaDOS names are ISO-8859-1); the Finder and Spotlight folders
-(`.fseventsd`, `.Spotlight-V100`, `.Trashes`...) are refused. There is no menu bar app yet:
-disks are not mounted automatically when inserted.
+#### How it behaves on macOS
 
-To build it: install FUSE-T and the command line tools (`xcode-select --install`), then
-`make` (the Makefile finds FUSE-T's libfuse3 in `/usr/local`).
+The driver mounts with FUSE-T's options for a floppy: volume name shown in the Finder, no
+`._*` AppleDouble files, `.DS_Store` or extended attributes, names in composed Unicode form
+(AmigaDOS names are ISO-8859-1); the Finder and Spotlight folders (`.fseventsd`,
+`.Spotlight-V100`, `.Trashes`...) are refused.
+
+#### Building
+
+Install FUSE-T and the command line tools (`xcode-select --install`), then `make` (the
+Makefile finds FUSE-T's libfuse3 in `/usr/local`). The app: `brew install librsvg`, then
+`macos/build-app.sh <version>` (needs the universal `waffle-fuse` binary, see the workflow)
+and `macos/make-dmg.sh "dist/Waffle DiskFlashback.app" <file.dmg>`.
 
 ### Installation from source
 
