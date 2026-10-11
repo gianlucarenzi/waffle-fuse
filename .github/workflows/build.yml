@@ -289,10 +289,17 @@ jobs:
             echo "--- ~/Floppy"; ls -la "$HOME/Floppy" 2>/dev/null
             echo "--- mounts"; mount | grep -v -E '^/dev/disk|devfs|map ' || true
             echo "--- processes"; pgrep -lf -i waffle || true
+            echo "--- system log (nfs, mount, tcc)"
+            log show --last 3m --style compact \
+              --predicate 'eventMessage CONTAINS[c] "nfs" OR process == "mount_nfs" OR process == "mount" OR (process == "tccd" AND eventMessage CONTAINS[c] "Waffle")' \
+              2>/dev/null | tail -60
           }
           trap show EXIT
           ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
           is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
+          # Experiment: the same mount in ~/Floppy from the command line
+          ./waffle-fuse --image "$W/t.adf" --automount "$HOME/Floppy" && echo "CLI mount in ~/Floppy: OK" || echo "CLI mount in ~/Floppy: FAILED"
+          is_mounted "$MNT" && { umount "$MNT"; for _ in $(seq 40); do [ -d "$MNT" ] || break; sleep 0.25; done; }
           # "Open With": the app mounts the image as a virtual disk
           open --env WAFFLE_DEBUG=1 -a "$APP" "$W/t.adf"
           for _ in $(seq 60); do is_mounted "$MNT" && break; sleep 0.5; done
