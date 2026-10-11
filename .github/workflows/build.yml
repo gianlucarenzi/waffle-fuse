@@ -483,8 +483,13 @@ jobs:
           $exe = "$env:RUNNER_TEMP\innosetup-$env:INNO_VERSION-x64.exe"
           Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$env:INNO_TAG/innosetup-$env:INNO_VERSION-x64.exe" -OutFile $exe
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:INNO_SHA256) { throw "Inno Setup: checksum mismatch" }
-          Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$env:ProgramFiles\Inno Setup 7" -Wait
-          Get-Item "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+          $dir = "$env:ProgramFiles\Inno Setup 7"
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\inno.log`"" -Wait -PassThru
+          if (-not (Test-Path "$dir\ISCC.exe")) {
+            Write-Host "exit code $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\inno.log" -Tail 30
+            Get-ChildItem "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:LOCALAPPDATA\Programs" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "ISCC.exe not in $dir"
+          }
 
       - name: Build the installer
         run: windows/make-installer.sh "$VERSION"
