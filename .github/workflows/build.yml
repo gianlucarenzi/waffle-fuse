@@ -259,34 +259,40 @@ jobs:
           ./waffle-fuse --help | head -3
 
       - name: FUSE-T diagnostics
-        # Temporary: trace the operations FUSE-T sends for the cases that
-        # misbehave (long AFFS names, case-only rename, disk full, unmount)
+        # Temporary: replay the start of the test suite's mutate step with the
+        # FUSE debug trace, to see which operation goes wrong under FUSE-T
         timeout-minutes: 5
         continue-on-error: true
         shell: bash {0}
         run: |
           export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
-          W=$(mktemp -d /tmp/diag.XXXXXX); M="$W/mnt"; mkdir "$M"
+          W=$(mktemp -d /tmp/diag.XXXXXX); M="$W/mnt"; R="$W/ref"; mkdir "$M"
           step() { echo; echo "### $*"; timeout 30 "$@"; echo "rc=$?"; }
-          ./waffle-fuse --format-image "$W/a.adf" ffs dd Diag
+          mkdir -p "$R/Dir One/Nested" "$R/dir2" "$R/many"
+          for f in f0 f1 small.txt; do echo "$f" > "$R/$f"; done
+          echo inner > "$R/Dir One/inner.dat"
+          for i in $(seq 1 40); do echo "file $i" > "$R/many/Entry number $i.txt"; done
+          ./waffle-fuse --format-image "$W/a.adf" ofs dd Diag
           ./waffle-fuse --image "$W/a.adf" "$M" -f -d > "$W/log" 2>&1 &
           P=$!
           for _ in $(seq 100); do [ "$(stat -c %d "$M")" != "$(stat -c %d "$W")" ] && break; sleep 0.1; done
-          mount | grep "$M"
-          step touch "$M/This name is definitely longer than thirty chars"
-          step ls -la "$M"
-          step sh -c "echo hello > '$M/ReadMe.TXT'"
-          step mv "$M/ReadMe.TXT" "$M/readme.txt"
+          step cp -r "$R/." "$M/"
           step ls -lai "$M"
-          step sh -c "head -c 2000000 /dev/urandom > '$M/toobig'"
-          step ls -la "$M"
-          step rm -f "$M/toobig"
-          step ls -la "$M"
+          echo "=== MARK before mv" >> "$W/log"
+          step mv "$M/small.txt" "$M/Dir One/moved.txt"
+          step ls -lai "$M" "$M/Dir One"
+          echo "=== MARK before second mv" >> "$W/log"
+          step mv "$M/dir2" "$M/Dir One/Nested/dir2moved"
+          step ls -lai "$M"
+          echo "=== MARK before rm" >> "$W/log"
+          step rm "$M/f1"
+          step ls -lai "$M"
+          echo "=== MARK before umount" >> "$W/log"
           step umount "$M"
           for _ in $(seq 100); do kill -0 $P 2>/dev/null || break; sleep 0.1; done
           if kill -0 $P 2>/dev/null; then echo "### DRIVER STILL RUNNING after umount"; kill -9 $P; fi
-          echo; echo "=== driver log ($(wc -l < "$W/log") lines)"
-          grep -vE '^\s*$' "$W/log" | head -600
+          echo; echo "=== driver log from the first mv ($(wc -l < "$W/log") lines in all)"
+          sed -n '/=== MARK before mv/,$p' "$W/log" | head -700
 
       - name: Filesystem tests (disk images through FUSE-T)
         timeout-minutes: 15
