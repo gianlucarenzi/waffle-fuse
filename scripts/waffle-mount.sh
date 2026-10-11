@@ -9,6 +9,8 @@
 # writable, else ~/Floppy), where it shows up as a
 # volume on the desktop.  For automatic mounting on insert use the tray
 # daemon (waffle-diskflashback.py) instead.
+#
+# Also works on macOS (FUSE-T): ports /dev/cu.*, notifications and Finder.
 
 FORMAT="${1:-auto}"    # auto | amiga | dos
 DENSITY="${2:-auto}"   # auto | dd | hd
@@ -16,6 +18,8 @@ PORT="${3:-}"
 # Default: where udisks mounts (/run/media/$USER or /media/$USER) if we may
 # create directories there
 # (see install-system.sh), otherwise ~/Floppy
+MACOS=0
+[ "$(uname -s)" = Darwin ] && MACOS=1
 MOUNT_DIR="${WAFFLE_MOUNT_DIR:-}"
 if [ -z "$MOUNT_DIR" ]; then
     MOUNT_DIR="$HOME/Floppy"
@@ -26,7 +30,10 @@ fi
 
 # ── Notifications ────────────────────────────────────────────────────────────
 notify() {
-    if command -v notify-send >/dev/null 2>&1; then
+    if [ $MACOS -eq 1 ]; then
+        osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+                  -e 'end run' "$1" "$2" >/dev/null 2>&1 || echo "$1: $2" >&2
+    elif command -v notify-send >/dev/null 2>&1; then
         notify-send -a Waffle -i "${3:-media-floppy}" "$1" "$2"
     elif command -v zenity >/dev/null 2>&1; then
         zenity --info --title="$1" --text="$2" &
@@ -39,11 +46,13 @@ notify_error() { notify "$1" "$2" dialog-error; }
 # ── waffle-fuse binary ───────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WAFFLE_BIN="$SCRIPT_DIR/../waffle-fuse"
+[ -x "$WAFFLE_BIN" ] || WAFFLE_BIN="$SCRIPT_DIR/waffle-fuse"     # macOS archive
 [ -x "$WAFFLE_BIN" ] || WAFFLE_BIN="waffle-fuse"
 
 # ── Serial port: first one that answers like a DrawBridge ────────────────────
 if [ -z "$PORT" ]; then
-    for candidate in /dev/serial/by-id/* /dev/ttyUSB* /dev/ttyACM*; do
+    for candidate in /dev/serial/by-id/* /dev/ttyUSB* /dev/ttyACM* \
+                     /dev/cu.usbserial* /dev/cu.usbmodem* /dev/cu.wchusbserial* /dev/cu.SLAB_USBtoUART*; do
         [ -e "$candidate" ] || continue
         "$WAFFLE_BIN" --probe "$candidate" >/dev/null 2>&1
         case $? in 0|1) PORT="$candidate"; break ;; esac
@@ -55,10 +64,21 @@ if [ -z "$PORT" ]; then
 fi
 
 # ── Toggle: unmount if mounted ───────────────────────────────────────────────
-# /proc/mounts escapes spaces as \040
-MNT="$(awk -v src="waffle:$PORT" '$1 == src { print $2; exit }' /proc/mounts | sed 's/\\040/ /g')"
+if [ $MACOS -eq 1 ]; then
+    # FUSE-T mounts over NFS: a disk mounted here is a subdirectory on
+    # another device than $MOUNT_DIR
+    MNT=""
+    for d in "$MOUNT_DIR"/*/; do
+        [ -d "$d" ] || continue
+        if [ "$(/usr/bin/stat -f %d "$d")" != "$(/usr/bin/stat -f %d "$MOUNT_DIR")" ]; then MNT="${d%/}"; break; fi
+    done
+else
+    # /proc/mounts escapes spaces as \040
+    MNT="$(awk -v src="waffle:$PORT" '$1 == src { print $2; exit }' /proc/mounts | sed 's/\\040/ /g')"
+fi
 if [ -n "$MNT" ]; then
-    if ! fusermount3 -u "$MNT" 2>/dev/null; then
+    if [ $MACOS -eq 1 ]; then UNMOUNT="umount"; else UNMOUNT="fusermount3 -u"; fi
+    if ! $UNMOUNT "$MNT" 2>/dev/null; then
         notify_error "Disk in use" "Close the windows and terminals using $MNT, then try again."
         exit 1
     fi
@@ -88,7 +108,8 @@ case $RC in
         MNT="$(printf '%s\n' "$OUT" | sed -n 's/^WAFFLE event=mounted mountpoint=//p')"
         VOL="$(basename "$MNT")"
         notify "Disk inserted" "$VOL"
-        if command -v xdg-open >/dev/null 2>&1; then xdg-open "$MNT" & fi
+        if [ $MACOS -eq 1 ]; then open "$MNT"
+        elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$MNT" & fi
         ;;
     2) notify_error "Waffle" "Cannot open $PORT (in use by another program?)" ;;
     3) notify_error "Waffle" "No disk in the drive." ;;

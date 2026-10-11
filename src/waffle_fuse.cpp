@@ -99,6 +99,26 @@ static void emit(const std::string& line)
     std::cout << "WAFFLE " << line << std::endl;
 }
 
+// Is 'path' a mountpoint (on another device than its parent directory)?
+static bool isMountpoint(const std::string& path)
+{
+    struct stat st, parent;
+    return stat(path.c_str(), &st) == 0 && stat((path + "/..").c_str(), &parent) == 0 &&
+           st.st_dev != parent.st_dev;
+}
+
+// Escape a value for a -o option list: ',' separates options, '\\' escapes
+static std::string optEscape(const std::string& v)
+{
+    std::string s;
+    for (char c : v)
+    {
+        if (c == ',' || c == '\\') s += '\\';
+        s += c;
+    }
+    return s;
+}
+
 // Run a command without a shell; returns its exit status (-1 on failure).
 static int runCommand(const std::vector<std::string>& argv)
 {
@@ -178,7 +198,11 @@ static std::string makeAutomountDir(const std::string& base, const std::string& 
         {
             if (errno == ENOTCONN)
             {
+#ifdef __APPLE__
+                runCommand({"umount", "-f", path});
+#else
                 runCommand({"fusermount3", "-u", "-z", path});
+#endif
                 if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && isDirEmpty(path)) return path;
                 continue;
             }
@@ -191,9 +215,7 @@ static std::string makeAutomountDir(const std::string& base, const std::string& 
         }
         if (!S_ISDIR(st.st_mode)) continue;
         // An empty directory that is not already a mountpoint can be reused
-        struct stat parent;
-        std::string up = path + "/..";
-        if (stat(up.c_str(), &parent) == 0 && parent.st_dev != st.st_dev) continue;
+        if (isMountpoint(path)) continue;
         if (isDirEmpty(path)) return path;
     }
     return "";
@@ -276,7 +298,9 @@ static void onDiskEvent(WaffleDisk::Event e)
 // * a virtual, read-only /.xdg-volume-info gives file managers the volume name
 //   and an Amiga/DOS icon; it is never written to the disk;
 // * .Trash / .Trash-<uid> folders are refused, so file managers offer to delete
-//   permanently instead of filling an 880K floppy with a trash can.
+//   permanently instead of filling an 880K floppy with a trash can;
+// * on macOS, so are the Finder and Spotlight folders (the AppleDouble ._ files
+//   and .DS_Store are turned off with the noappledouble mount option).
 
 static struct fuse_operations g_fsOps;          // the filesystem's own operations
 static bool                   g_allowTrash = false;
@@ -305,6 +329,11 @@ static bool isTrash(const char* path)
 {
     const char* base = strrchr(path, '/');
     base = base ? base + 1 : path;
+#ifdef __APPLE__
+    for (const char* name : {".fseventsd", ".Spotlight-V100", ".TemporaryItems"})
+        if (strcmp(base, name) == 0) return true;
+    if (!g_allowTrash && strcmp(base, ".Trashes") == 0) return true;
+#endif
     return !g_allowTrash && (strcmp(base, ".Trash") == 0 || strncmp(base, ".Trash-", 7) == 0);
 }
 
@@ -378,6 +407,44 @@ static int w_rename(const char* from, const char* to, unsigned int flags)
     return g_fsOps.rename(from, to, flags);
 }
 
+// Directory listings with real offsets: entry i gets offset i + 1, so a reader
+// can resume from any offset with a new handle.  FUSE-T (macOS) serves the
+// mount over NFS, whose READDIR is stateless and resumes from such a cookie;
+// with offset 0 for every entry, libfuse resolves offsets in a per-handle
+// buffer and a resumed listing came back empty after changes.
+struct DirEntry
+{
+    std::string name;
+    struct stat st;
+    bool        hasStat;
+};
+
+static int collectEntry(void* buf, const char* name, const struct stat* st, off_t,
+                        enum fuse_fill_dir_flags)
+{
+    auto* entries = static_cast<std::vector<DirEntry>*>(buf);
+    DirEntry e{name, {}, st != nullptr};
+    if (st) e.st = *st;
+    entries->push_back(std::move(e));
+    return 0;
+}
+
+static int w_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t off,
+                     struct fuse_file_info* fi, enum fuse_readdir_flags flags)
+{
+    std::vector<DirEntry> entries;
+    int err = g_fsOps.readdir(path, &entries, collectEntry, 0, fi, flags);
+    if (err) return err;
+    for (size_t i = off > 0 ? (size_t)off : 0; i < entries.size(); i++)
+    {
+        const DirEntry& e = entries[i];
+        if (filler(buf, e.name.c_str(), e.hasStat ? &e.st : nullptr, (off_t)(i + 1),
+                   (fuse_fill_dir_flags)0))
+            break;                      // buffer full: the reader asks again from here
+    }
+    return 0;
+}
+
 static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
 {
     g_fsOps = fs;
@@ -390,6 +457,7 @@ static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
     ops.mkdir   = w_mkdir;
     ops.create  = w_create;
     ops.rename  = w_rename;
+    ops.readdir = w_readdir;
     return ops;
 }
 
@@ -1043,7 +1111,16 @@ int main(int argc, char* argv[])
     g_mountpoint = mountpoint;
 
     // Name shown by `mount`/`df`; "ro" goes to the kernel when the medium is protected
-    std::string fsopts = "-ofsname=waffle:" + source + ",subtype=" + (useAFFS ? "affs" : "vfat");
+    std::string fsopts = "-ofsname=" + optEscape("waffle:" + source) + ",subtype=" + (useAFFS ? "affs" : "vfat");
+#ifdef __APPLE__
+    // FUSE-T: Finder shows the volume name; no ._ AppleDouble files, .DS_Store
+    // or extended attributes on an 880K floppy.  FUSE-T serves the mount over
+    // NFS, whose clients keep file handles indefinitely: with noforget libfuse
+    // never reuses an inode number for another file, as libfuse recommends for
+    // NFS exports.  nfc: names in composed form (the Finder may send "a" plus a
+    // combining accent), which AmigaDOS Latin-1 names need, both ways.
+    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr,noforget,nfc";
+#endif
     fuse_opt_add_arg(&args, fsopts.c_str());
     if (readOnly) fuse_opt_add_arg(&args, "-oro");
 
@@ -1076,9 +1153,83 @@ int main(int argc, char* argv[])
     struct fuse_session* se = fuse_get_session(g_fuse);
     fuse_set_signal_handlers(se);
 
+#ifdef __APPLE__
+    // FUSE-T serves the mount over NFS, which completes only once the loop
+    // below answers its first requests.  Announce the mount (and, in the
+    // background, let the parent process exit) only when it is really there,
+    // so whoever opens it right away does not get the empty directory below.
+    int readyFd = -1;
+    if (!cmd.foreground)
+    {
+        int ready[2];
+        pid_t pid = -1;
+        if (pipe(ready) == 0) pid = fork();
+        if (pid < 0)
+        {
+            std::cerr << "waffle-fuse: cannot go to the background\n";
+            emit("error=mount");
+            return EXIT_USAGE;
+        }
+        if (pid > 0)
+        {
+            // Parent: wait for the child's verdict (EOF if it dies)
+            close(ready[1]);
+            char verdict = 0;
+            if (read(ready[0], &verdict, 1) == 1 && verdict == 'm')
+            {
+                std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
+                emit("event=mounted mountpoint=" + mountpoint);
+                _exit(EXIT_OK);
+            }
+            std::cerr << "waffle-fuse: cannot mount on " << mountpoint << "\n";
+            emit("error=mount");
+            _exit(EXIT_USAGE);
+        }
+        // Child: detach like fuse_daemonize()
+        close(ready[0]);
+        readyFd = ready[1];
+        setsid();
+        if (chdir("/") != 0) {}
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0)
+        {
+            dup2(devnull, 0);
+            dup2(devnull, 1);
+            dup2(devnull, 2);
+            if (devnull > 2) close(devnull);
+        }
+    }
+    std::thread([mountpoint, readyFd]
+    {
+        bool up = false;
+        for (int i = 0; i < 300 && !up; i++)          // up to 15 s
+        {
+            up = isMountpoint(mountpoint);
+            if (!up) usleep(50000);
+        }
+        if (readyFd >= 0)
+        {
+            char verdict = up ? 'm' : 'x';
+            if (write(readyFd, &verdict, 1) != 1) {}
+            close(readyFd);
+        }
+        else if (up)
+        {
+            std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
+            emit("event=mounted mountpoint=" + mountpoint);
+        }
+        if (!up)
+        {
+            std::cerr << "waffle-fuse: the mount did not appear on " << mountpoint << "\n";
+            emit("error=mount");
+            raise(SIGTERM);                            // leave the FUSE loop
+        }
+    }).detach();
+#else
     std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
     emit("event=mounted mountpoint=" + mountpoint);
     fuse_daemonize(cmd.foreground);
+#endif
 
     // Threads must be started after fuse_daemonize() has forked
     if (waffle) waffle->startBackground(onDiskEvent);

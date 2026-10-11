@@ -209,10 +209,86 @@ jobs:
             exit 1
           fi
 
+  build-macos:
+    name: Build on macOS (universal, FUSE-T)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    env:
+      FUSE_T_VERSION: '1.2.9'
+      FUSE_T_SHA256: a1b893740ded8ea034f1acc522ded1144f4a567a1f416daef8c1441cf2662f7f
+      # FUSE-T's libfuse3 needs macOS 12
+      MACOS_MIN: '12.0'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install FUSE-T and test tools
+        run: |
+          PKG="$RUNNER_TEMP/fuse-t.pkg"
+          curl -sSL -o "$PKG" "https://github.com/macos-fuse-t/fuse-t/releases/download/${FUSE_T_VERSION}/fuse-t-macos-installer-${FUSE_T_VERSION}.pkg"
+          echo "$FUSE_T_SHA256  $PKG" | shasum -a 256 -c -
+          sudo installer -pkg "$PKG" -target /
+          ls -l /usr/local/lib/libfuse3* /usr/local/include/fuse3/fuse.h
+          brew install coreutils dosfstools
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs "setuptools<81" || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
+
+      - name: Build universal binary
+        # One architecture at a time, then lipo: dependency files (-MMD) do not
+        # work with several -arch flags in one compiler run
+        run: |
+          for arch in arm64 x86_64; do
+            FLAGS="-arch $arch -mmacosx-version-min=$MACOS_MIN"
+            make clean
+            make -j"$(sysctl -n hw.ncpu)" EXTRA_CXXFLAGS="$FLAGS" EXTRA_LDFLAGS="$FLAGS"
+            mv waffle-fuse "waffle-fuse-$arch"
+          done
+          lipo -create -output waffle-fuse waffle-fuse-arm64 waffle-fuse-x86_64
+          rm waffle-fuse-arm64 waffle-fuse-x86_64
+
+      - name: Check binary
+        run: |
+          lipo -info waffle-fuse
+          lipo -info waffle-fuse | grep -q 'x86_64 arm64'
+          echo "--- Libraries:"
+          otool -L waffle-fuse
+          echo "--- Minimum macOS:"
+          vtool -show-build waffle-fuse | grep minos
+          ./waffle-fuse --help | head -3
+
+      - name: Filesystem tests (disk images through FUSE-T)
+        timeout-minutes: 15
+        run: |
+          export PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix dosfstools)/sbin:$RUNNER_TEMP/venv/bin:$PATH"
+          export TEST_PYTHON="$RUNNER_TEMP/venv/bin/python"
+          tests/run-tests.sh
+
+      - name: Package
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
+            *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
+          esac
+          NAME="waffle-fuse-${VERSION}-macos-universal"
+          mkdir -p "dist/$NAME"
+          install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
+          install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          ls -l dist
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: waffle-fuse-packages-macos
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, test-install]
+    needs: [package, test-install, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -221,7 +297,8 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
-          name: waffle-fuse-packages
+          pattern: waffle-fuse-packages*
+          merge-multiple: true
           path: pkgs
 
       - name: Create release
