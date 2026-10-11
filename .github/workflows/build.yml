@@ -286,7 +286,12 @@ jobs:
           show() {
             echo "--- app log"; grep -v -E '^\S+ \S+   \[--image\] ( |unique|INIT|flags|max_|congestion|time_gran|getattr|statfs|LOOKUP|lookup)' "$HOME/Library/Logs/WaffleDiskFlashback.log" 2>/dev/null | head -80
             echo "--- FUSE-T log"; tail -12 "$HOME/Library/Logs/fuse-t/fuse-t.log" 2>/dev/null
-            echo "--- tccd"; log show --last 2m --style compact --predicate 'process == "tccd"' 2>/dev/null | grep -i -E "waffle|mount_nfs|go-nfsv4|AUTHREQ_RESULT|service" | tail -25
+            echo "--- extended attributes of the mount dirs"
+            for d in "$base" "$base/AppTest" "$HOME/Floppy"; do [ -e "$d" ] && { ls -lde@ "$d"; xattr -l "$d"; }; done
+            echo "--- mount, mount_nfs, nfs (system log)"
+            log show --last 2m --style compact \
+              --predicate 'process == "mount" OR process == "mount_nfs" OR senderImagePath CONTAINS[c] "nfs" OR eventMessage CONTAINS[c] "mount_nfs"' \
+              2>/dev/null | grep -v mDNSResponder | tail -30
           }
           # One run of the app: $1 = mount dir ("" = default ~/Floppy); 0 if all went well
           app_run() {
@@ -315,6 +320,7 @@ jobs:
             umount "$W/check"; wait $P
             [ $ok -eq 0 ] && echo "app run in $base: OK" || { echo "::warning::file not in the image"; return 1; }
           }
+          set +e
           app_run "$W/mnt"; A=$?
           app_run ""; B=$?
           echo "mount dir outside home: $A, ~/Floppy: $B"
