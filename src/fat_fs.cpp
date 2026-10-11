@@ -2,7 +2,6 @@
 // Supports read + write, VFAT long file names (read and create), NT lower-case
 // flags for short names, rename/move between directories.
 
-#define FUSE_USE_VERSION 31
 #include "fat_fs.h"
 
 #include <cstring>
@@ -14,7 +13,6 @@
 #include <map>
 #include <set>
 #include <errno.h>
-#include <unistd.h>
 
 // ── Little-endian helpers ────────────────────────────────────────────────────
 
@@ -975,7 +973,7 @@ static FatFs* getFS()
     return static_cast<FatFs*>(fuse_get_context()->private_data);
 }
 
-static void fillStat(FatFs* fs, const DirItem& it, bool isRoot, struct stat* st)
+static void fillStat(FatFs* fs, const DirItem& it, bool isRoot, fuse_stat_t* st)
 {
     memset(st, 0, sizeof(*st));
     const bool rw = !fs->ro();
@@ -1006,7 +1004,7 @@ static void fillStat(FatFs* fs, const DirItem& it, bool isRoot, struct stat* st)
     }
 }
 
-static int fat_getattr(const char* path, struct stat* st, struct fuse_file_info*)
+static int fat_getattr(const char* path, fuse_stat_t* st, struct fuse_file_info*)
 {
     FatFs* fs = getFS();
     DirItem it;
@@ -1019,7 +1017,7 @@ static int fat_getattr(const char* path, struct stat* st, struct fuse_file_info*
 }
 
 static int fat_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
-                       off_t, struct fuse_file_info*, enum fuse_readdir_flags)
+                       fuse_off_t, struct fuse_file_info*, enum fuse_readdir_flags)
 {
     FatFs* fs = getFS();
     DirItem dir;
@@ -1038,7 +1036,7 @@ static int fat_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
     for (auto& item : items)
     {
         if (item.shortName == "." || item.shortName == "..") continue;
-        struct stat st;
+        fuse_stat_t st;
         fillStat(fs, item, false, &st);
         filler(buf, item.name.c_str(), &st, 0, (fuse_fill_dir_flags)0);
     }
@@ -1064,7 +1062,7 @@ static int fat_open(const char* path, struct fuse_file_info* fi)
     return 0;
 }
 
-static int fat_read(const char* path, char* buf, size_t size, off_t offset,
+static int fat_read(const char* path, char* buf, size_t size, fuse_off_t offset,
                     struct fuse_file_info*)
 {
     FatFs* fs = getFS();
@@ -1125,7 +1123,7 @@ static int resizeFile(FatFs* fs, DirItem& it, uint64_t newSize)
     return ok ? 0 : -EIO;
 }
 
-static int fat_write(const char* path, const char* buf, size_t size, off_t offset,
+static int fat_write(const char* path, const char* buf, size_t size, fuse_off_t offset,
                      struct fuse_file_info*)
 {
     FatFs* fs = getFS();
@@ -1154,7 +1152,7 @@ static int fat_write(const char* path, const char* buf, size_t size, off_t offse
     return n;
 }
 
-static int fat_truncate(const char* path, off_t size, struct fuse_file_info*)
+static int fat_truncate(const char* path, fuse_off_t size, struct fuse_file_info*)
 {
     FatFs* fs = getFS();
     if (fs->ro()) return -EROFS;
@@ -1168,7 +1166,7 @@ static int fat_truncate(const char* path, off_t size, struct fuse_file_info*)
     return resizeFile(fs, it, (uint64_t)size);
 }
 
-static int fat_create(const char* path, mode_t, struct fuse_file_info*)
+static int fat_create(const char* path, fuse_mode_t, struct fuse_file_info*)
 {
     FatFs* fs = getFS();
     if (fs->ro()) return -EROFS;
@@ -1217,7 +1215,7 @@ static int fat_unlink(const char* path)
     return err;
 }
 
-static int fat_mkdir(const char* path, mode_t)
+static int fat_mkdir(const char* path, fuse_mode_t)
 {
     FatFs* fs = getFS();
     if (fs->ro()) return -EROFS;
@@ -1392,7 +1390,7 @@ static int fat_rename(const char* from, const char* to, unsigned int flags)
     return fs->flushFAT() ? 0 : -EIO;
 }
 
-static int fat_utimens(const char* path, const struct timespec tv[2], struct fuse_file_info*)
+static int fat_utimens(const char* path, const fuse_timespec_t tv[2], struct fuse_file_info*)
 {
     FatFs* fs = getFS();
     if (fs->ro()) return -EROFS;
@@ -1408,7 +1406,7 @@ static int fat_utimens(const char* path, const struct timespec tv[2], struct fus
     return fs->writeSlot(it.slot, it.raw) ? 0 : -EIO;
 }
 
-static int fat_chmod(const char* path, mode_t mode, struct fuse_file_info*)
+static int fat_chmod(const char* path, fuse_mode_t mode, struct fuse_file_info*)
 {
     // Map the owner write bit to the DOS read-only attribute
     FatFs* fs = getFS();
@@ -1427,7 +1425,7 @@ static int fat_chmod(const char* path, mode_t mode, struct fuse_file_info*)
     return fs->writeSlot(it.slot, it.raw) ? 0 : -EIO;
 }
 
-static int fat_chown(const char*, uid_t, gid_t, struct fuse_file_info*)
+static int fat_chown(const char*, fuse_uid_t, fuse_gid_t, struct fuse_file_info*)
 {
     return 0;
 }
@@ -1437,7 +1435,7 @@ static int fat_fsync(const char*, int, struct fuse_file_info*)
     return getFS()->disk->flush() ? 0 : -EIO;
 }
 
-static int fat_statfs(const char*, struct statvfs* sv)
+static int fat_statfs(const char*, fuse_statvfs_t* sv)
 {
     FatFs* fs = getFS();
     uint32_t free_clus = fs->countFree();

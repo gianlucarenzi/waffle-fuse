@@ -258,12 +258,12 @@ public:
     // Dont care about this
     virtual void setIndexSequence(const IndexSequenceMarker& sequence) override {
 #ifdef _WIN32
-        UNREFERENCED_PARAMETER(sequence);
+        (void)sequence;
 #endif
     };
     virtual void getIndexSequence(IndexSequenceMarker& sequence) const override {
 #ifdef _WIN32
-        UNREFERENCED_PARAMETER(sequence);
+        (void)sequence;
 #endif
     };
     virtual bool hasLearntRotationSpeed() const override { return true; };

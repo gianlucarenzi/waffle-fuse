@@ -1,8 +1,23 @@
 # waffle-fuse Makefile
 # Builds a standalone FUSE driver for DrawBridge/Waffle floppy reader.
-# No Qt dependency; requires libfuse3-dev (Linux) or FUSE-T (macOS).
+# No Qt dependency; requires libfuse3-dev (Linux), FUSE-T (macOS) or the
+# WinFsp headers (Windows, built with MinGW-w64: MSYS2, or a cross compiler
+# with e.g. make CXX=x86_64-w64-mingw32-g++-posix WINFSP_INC=.../winfsp/inc).
 
-ifeq ($(shell uname -s),Darwin)
+ifneq ($(filter Windows_NT,$(OS))$(findstring mingw,$(CXX)),)
+WINDOWS    := 1
+endif
+
+ifdef WINDOWS
+# Windows: WinFsp (https://winfsp.dev).  Only its headers are needed to build:
+# the DLL is loaded at run time (src/winfsp_load.cpp).  Everything else is
+# linked statically, so waffle-fuse.exe needs no MinGW DLLs.
+WINFSP_INC  ?= C:/Program Files (x86)/WinFsp/inc
+FUSE_CFLAGS ?= -I"$(WINFSP_INC)" -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 \
+               -Wno-unknown-pragmas -Wno-cast-function-type
+FUSE_LIBS   ?= -static -lsetupapi -lws2_32
+WINDRES     ?= $(subst windres-posix,windres,$(subst windres-win32,windres,$(subst g++,windres,$(CXX))))
+else ifeq ($(shell uname -s),Darwin)
 # macOS: FUSE-T (https://www.fuse-t.org) installs libfuse3 under /usr/local
 CXX        := clang++
 FUSE_CFLAGS ?= -I/usr/local/include -I/usr/local/include/fuse3
@@ -46,11 +61,21 @@ SRC_SRCS := src/disk_cache.cpp \
             src/affs_fs.cpp \
             src/waffle_fuse.cpp
 
+ifdef WINDOWS
+SRC_SRCS += src/winfsp_load.cpp
+endif
+
 ALL_SRCS := $(LIB_SRCS) $(SRC_SRCS)
 
 OBJS     := $(ALL_SRCS:.cpp=.o)
 
+ifdef WINDOWS
+TARGET   := waffle-fuse.exe
+RES_OBJ  := windows/waffle-fuse.res.o
+else
 TARGET   := waffle-fuse
+RES_OBJ  :=
+endif
 
 .DEFAULT_GOAL := all
 
@@ -67,14 +92,18 @@ src/waffle_fuse.o: src/icons_embedded.h
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(RES_OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
+
+# Windows: manifest (UTF-8 code page, long paths), icon and version information
+windows/waffle-fuse.res.o: windows/waffle-fuse.rc windows/waffle-fuse.exe.manifest windows/waffle-fuse.ico
+	$(WINDRES) -O coff -I windows $< -o $@
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) src/icons_embedded.h
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RES_OBJ) src/icons_embedded.h
 
 install: $(TARGET)
 	install -m 755 $(TARGET) $(PREFIX)/bin/$(TARGET)

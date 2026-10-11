@@ -9,6 +9,7 @@
 #include <cstring>
 #include <ctime>
 #include <cctype>
+#include "platform.h"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,9 +49,7 @@ static void amigaChecksum(uint8_t* b, size_t off)
 // Amiga date stamp in local time (days, minutes, ticks since 1-Jan-1978)
 static void amigaDate(uint8_t* b, size_t off, time_t t)
 {
-    struct tm lt;
-    localtime_r(&t, &lt);
-    time_t local = t + lt.tm_gmtoff - 252460800;
+    time_t local = t + utcOffsetAt(t) - 252460800;
     if (local < 0) local = 0;
     put32be(b, off,     (uint32_t)(local / 86400));
     put32be(b, off + 4, (uint32_t)((local % 86400) / 60));

@@ -359,10 +359,134 @@ jobs:
             dist/*.dmg
           if-no-files-found: error
 
+  build-windows:
+    name: Build on Windows (MinGW-w64, WinFsp)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      WINFSP_VERSION: '2.1'
+      WINFSP_MSI: winfsp-2.1.25156.msi
+      WINFSP_SHA256: 073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install WinFsp (with the developer files)
+        shell: pwsh
+        run: |
+          $msi = "$env:RUNNER_TEMP\$env:WINFSP_MSI"
+          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v$env:WINFSP_VERSION/$env:WINFSP_MSI" -OutFile $msi
+          if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $env:WINFSP_SHA256) { throw "WinFsp: checksum mismatch" }
+          Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', 'INSTALLLEVEL=1000' -Wait
+          Get-ChildItem "${env:ProgramFiles(x86)}\WinFsp\inc\fuse3", "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll"
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            diffutils
+            dosfstools
+            python
+            mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build waffle-fuse.exe
+        run: |
+          make -j"$(nproc)"
+          strip waffle-fuse.exe
+
+      - name: Check binary
+        # Only Windows system DLLs: no MinGW runtime, and WinFsp loaded at run time
+        run: |
+          echo "--- DLLs needed:"
+          objdump -p waffle-fuse.exe | grep 'DLL Name'
+          if objdump -p waffle-fuse.exe | grep -iE 'DLL Name: (libstdc|libgcc|libwinpthread|winfsp)'; then
+            echo "::error::waffle-fuse.exe must not need the MinGW runtime or link WinFsp"
+            exit 1
+          fi
+          ./waffle-fuse.exe --help 2>&1 | head -3
+
+      - name: Filesystem tests (disk images through WinFsp)
+        timeout-minutes: 15
+        run: |
+          VENV="$(cygpath -u "$RUNNER_TEMP")/venv"
+          python -m venv "$VENV"
+          "$VENV/bin/pip" install -q pyfatfs || echo "::warning::pyfatfs not installed: independent FAT checks skipped"
+          "$VENV/bin/pip" install -q amitools "setuptools<81" || echo "::warning::amitools not installed: independent AmigaDOS checks skipped"
+          export PATH="$PATH:$VENV/bin"
+          export TEST_PYTHON="$VENV/bin/python"
+          tests/run-tests.sh
+
+      - name: Package version
+        # Release tag vX.Y.Z -> X.Y.Z; manual runs -> 0.0.0.dev<run number>
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
+            *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "waffle-fuse-$env:VERSION-windows-x86_64"
+          New-Item -ItemType Directory -Force "dist\$name" | Out-Null
+          Copy-Item waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
+          Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
+          Get-ChildItem dist
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          Get-Item "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+
+      - name: Build the installer
+        run: windows/make-installer.sh "$VERSION"
+
+      - name: Test the installer (silent install, run, uninstall)
+        # WinFsp is already installed here, so its task is skipped; then the
+        # program must be in Program Files and on the system PATH, and gone after
+        # the uninstall
+        shell: pwsh
+        run: |
+          $setup = "dist\waffle-fuse-setup-$env:VERSION.exe"
+          $app = "$env:ProgramFiles\waffle-fuse"
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath', "/LOG=$env:RUNNER_TEMP\setup.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup failed: $($p.ExitCode)" }
+          & "$app\waffle-fuse.exe" --help 2>&1 | Select-Object -First 3
+          $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          if (-not ($path.Split(';') -contains $app)) { throw "not added to the PATH: $path" }
+          $p = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall failed: $($p.ExitCode)" }
+          # The uninstaller finishes in a copy of itself: wait for it
+          function OnPath { [Environment]::GetEnvironmentVariable('Path', 'Machine').Split(';') -contains $app }
+          for ($i = 0; $i -lt 30 -and ((Test-Path "$app\waffle-fuse.exe") -or (OnPath)); $i++) { Start-Sleep 1 }
+          if (Test-Path "$app\waffle-fuse.exe") { throw "still installed after the uninstall" }
+          if (OnPath) { throw "still on the PATH after the uninstall" }
+          Write-Host "installer: OK"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: waffle-fuse-packages-windows
+          path: |
+            dist/*.zip
+            dist/*.exe
+          if-no-files-found: error
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, test-install, build-macos]
+    needs: [package, test-install, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

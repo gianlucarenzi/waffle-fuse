@@ -30,15 +30,14 @@
 #include "SerialIO.h"
 
 #ifdef _WIN32
-#include <SetupAPI.h>
-#include <Devpropdef.h>
+#include <setupapi.h>
+#include <devpropdef.h>
 #include "RotationExtractor.h"
 #pragma comment(lib, "setupapi.lib")
 static const DEVPROPKEY DEVPKEY_Device_BusReportedDeviceDesc2 = { {0x540b947e, 0x8b40, 0x45bc, 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2}, 4 };
 static const DEVPROPKEY DEVPKEY_Device_InstanceId2 = { {0x78c34fc8, 0x104a, 0x4aca, 0x9e, 0xa4, 0x52, 0x4d, 0x52, 0x99, 0x6e, 0x57}, 256 };
-#ifndef GUID_DEVINTERFACE_COMPORT
-DEFINE_GUID(GUID_DEVINTERFACE_COMPORT,0x86e0d1e0, 0x8089, 0x11d0, 0x9c, 0xe4, 0x08, 0x00, 0x3e, 0x30, 0x1f, 0x73);
-#endif
+// GUID_DEVINTERFACE_COMPORT, defined here: DEFINE_GUID only declares it without INITGUID
+static const GUID GUID_DEVINTERFACE_COMPORT2 = { 0x86e0d1e0, 0x8089, 0x11d0, { 0x9c, 0xe4, 0x08, 0x00, 0x3e, 0x30, 0x1f, 0x73 } };
 
 // OS X, sigurbjornl, 20220208
 #elif defined __MACH__
@@ -269,7 +268,7 @@ void SerialIO::enumSerialPorts(std::vector<SerialPortInformation>& serialPorts)
     std::vector<GUID> toSearch;
 
     // Check normal COMPORTS guids
-    toSearch.push_back(GUID_DEVINTERFACE_COMPORT);
+    toSearch.push_back(GUID_DEVINTERFACE_COMPORT2);
 
     DWORD requiredSize = 8;
     std::vector< GUID> tmp(8);

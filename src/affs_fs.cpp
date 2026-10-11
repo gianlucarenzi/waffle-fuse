@@ -14,7 +14,6 @@
 //  - Laurent Clevy: http://lclevy.free.fr/adflib/adf_info.html
 //  - adflib by Laurent Clevy (GPL)
 
-#define FUSE_USE_VERSION 31
 #include "affs_fs.h"
 
 #include <cstring>
@@ -26,7 +25,6 @@
 #include <algorithm>
 #include <set>
 #include <cerrno>
-#include <unistd.h>
 
 // Block types and secondary types
 static const uint32_t T_SHORT    = 2;
@@ -111,9 +109,7 @@ static std::string blk_name(const uint8_t* b)
 // AmigaOS keeps dates in local time (no time zones), Unix in UTC
 static long utcOffset(time_t t)
 {
-    struct tm lt;
-    localtime_r(&t, &lt);
-    return lt.tm_gmtoff;
+    return utcOffsetAt(t);
 }
 
 static time_t blk_mtime(const uint8_t* b)
@@ -602,7 +598,7 @@ struct AffsFs
     }
 
     // Read file content
-    int readFile(uint32_t fileBlock, int32_t fileSize, char* buf, size_t size, off_t offset) const
+    int readFile(uint32_t fileBlock, int32_t fileSize, char* buf, size_t size, fuse_off_t offset) const
     {
         if(fileSize<=0||offset>=fileSize) return 0;
         auto db=fileDataBlocks(fileBlock);
@@ -615,13 +611,13 @@ struct AffsFs
         if((uint64_t)offset+toRead > (uint64_t)db.size()*bds) return -EIO;
         for(size_t bi=0; bi<db.size()&&done<toRead; bi++)
         {
-            off_t bs=(off_t)(bi*bds), be_=bs+bds;
+            fuse_off_t bs=(fuse_off_t)(bi*bds), be_=bs+bds;
             if(be_<=offset) continue;
-            if(bs>=(off_t)(offset+toRead)) break;
+            if(bs>=(fuse_off_t)(offset+toRead)) break;
             uint8_t raw[512]= {};
             if(!readBlock(db[bi],raw)) return -EIO;
             const uint8_t* data=raw+doff;
-            off_t from=std::max(offset-bs,(off_t)0);
+            fuse_off_t from=std::max(offset-bs,(fuse_off_t)0);
             size_t srcOff=(size_t)(bs+from-offset);  // position in output buf
             size_t avail=(size_t)(bds-from);
             size_t take=std::min(avail,toRead-srcOff);
@@ -904,7 +900,7 @@ static int parentAndName(AffsFs* fs, const char* path, uint32_t& parent, std::st
     return 0;
 }
 
-static void fillStat(AffsFs* fs, struct stat* st, int32_t secType, int32_t size, time_t mtime)
+static void fillStat(AffsFs* fs, fuse_stat_t* st, int32_t secType, int32_t size, time_t mtime)
 {
     bool rw=!fs->ro();
     if(secType==ST_FILE)
@@ -931,7 +927,7 @@ static void fillStat(AffsFs* fs, struct stat* st, int32_t secType, int32_t size,
 }
 
 // FUSE callbacks
-static int affs_getattr(const char* path, struct stat* st, struct fuse_file_info*)
+static int affs_getattr(const char* path, fuse_stat_t* st, struct fuse_file_info*)
 {
     memset(st,0,sizeof(*st));
     AffsFs* fs=getAF();
@@ -945,7 +941,7 @@ static int affs_getattr(const char* path, struct stat* st, struct fuse_file_info
 }
 
 static int affs_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
-                        off_t, struct fuse_file_info*, enum fuse_readdir_flags)
+                        fuse_off_t, struct fuse_file_info*, enum fuse_readdir_flags)
 {
     AffsFs* fs=getAF();
     auto res=fs->lookup(path);
@@ -955,7 +951,7 @@ static int affs_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
     filler(buf,"..",nullptr,0,(fuse_fill_dir_flags)0);
     for(auto& de:fs->listDir(res.block))
     {
-        struct stat s= {};
+        fuse_stat_t s= {};
         int32_t st=de.secType;
         if(st==ST_LINKFILE) st=ST_FILE;
         if(st==ST_LINKDIR)  st=ST_DIR;
@@ -1011,7 +1007,7 @@ static int affs_open(const char* path, struct fuse_file_info* fi)
     return 0;
 }
 
-static int affs_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
+static int affs_read(const char* path, char* buf, size_t size, fuse_off_t offset, struct fuse_file_info* fi)
 {
     AffsFs* fs=getAF();
     AffsFs::OpenFile* of=fi?fs->handle(fi->fh):nullptr;
@@ -1021,7 +1017,7 @@ static int affs_read(const char* path, char* buf, size_t size, off_t offset, str
         if(!of->loaded) if(auto* o=fs->loadedHandleFor(of->block)) of=o;
         if(of->loaded)
         {
-            if(offset>=(off_t)of->data.size()) return 0;
+            if(offset>=(fuse_off_t)of->data.size()) return 0;
             size_t n=std::min(size,of->data.size()-(size_t)offset);
             memcpy(buf,of->data.data()+offset,n);
             return (int)n;
@@ -1040,7 +1036,7 @@ static int affs_read(const char* path, char* buf, size_t size, off_t offset, str
     return fs->readFile(block,blk_size(fh),buf,size,offset);
 }
 
-static int affs_write(const char*, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
+static int affs_write(const char*, const char* buf, size_t size, fuse_off_t offset, struct fuse_file_info* fi)
 {
     AffsFs* fs=getAF();
     if(fs->ro()) return -EROFS;
@@ -1064,7 +1060,7 @@ static int affs_write(const char*, const char* buf, size_t size, off_t offset, s
     return (int)size;
 }
 
-static int affs_truncate(const char* path, off_t newsz, struct fuse_file_info* fi)
+static int affs_truncate(const char* path, fuse_off_t newsz, struct fuse_file_info* fi)
 {
     AffsFs* fs=getAF();
     if(fs->ro()) return -EROFS;
@@ -1129,7 +1125,7 @@ static int affs_fsync(const char*, int, struct fuse_file_info* fi)
     return fs->disk->flush()?0:-EIO;
 }
 
-static int affs_create(const char* path, mode_t, struct fuse_file_info* fi)
+static int affs_create(const char* path, fuse_mode_t, struct fuse_file_info* fi)
 {
     AffsFs* fs=getAF();
     if(fs->ro()) return -EROFS;
@@ -1150,7 +1146,7 @@ static int affs_create(const char* path, mode_t, struct fuse_file_info* fi)
     return 0;
 }
 
-static int affs_mkdir(const char* path, mode_t)
+static int affs_mkdir(const char* path, fuse_mode_t)
 {
     AffsFs* fs=getAF();
     if(fs->ro()) return -EROFS;
@@ -1270,7 +1266,7 @@ static int affs_rename(const char* from, const char* to, unsigned int flags)
     return fs->commitMeta()?0:-EIO;
 }
 
-static int affs_utimens(const char* path, const struct timespec tv[2], struct fuse_file_info*)
+static int affs_utimens(const char* path, const fuse_timespec_t tv[2], struct fuse_file_info*)
 {
     AffsFs* fs=getAF();
     if(fs->ro()) return -EROFS;
@@ -1283,15 +1279,15 @@ static int affs_utimens(const char* path, const struct timespec tv[2], struct fu
     blk_set_mtime(b,t);
     return fs->writeBlock(res.block,b,20)?0:-EIO;
 }
-static int affs_chmod(const char*, mode_t, struct fuse_file_info*)
+static int affs_chmod(const char*, fuse_mode_t, struct fuse_file_info*)
 {
     return 0;
 }
-static int affs_chown(const char*, uid_t, gid_t, struct fuse_file_info*)
+static int affs_chown(const char*, fuse_uid_t, fuse_gid_t, struct fuse_file_info*)
 {
     return 0;
 }
-static int affs_statfs(const char*, struct statvfs* sv)
+static int affs_statfs(const char*, fuse_statvfs_t* sv)
 {
     AffsFs* fs = getAF();
     uint32_t free_blks = fs->countFree();

@@ -19,10 +19,8 @@
 #include <iomanip>
 #include <vector>
 #include <unordered_map>
-#ifndef _WIN32
 #include <cstring>
 #include <cmath>
-#endif
 #include "ibm_sectors.h"
 
 namespace IBM {
