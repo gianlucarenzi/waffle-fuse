@@ -53,6 +53,21 @@ public static class Win
         return found;
     }
 
+    // "class | title" of every visible top-level window, for diagnostics
+    public static string List()
+    {
+        var sb = new StringBuilder();
+        EnumWindows((h, l) =>
+        {
+            if (!IsWindowVisible(h)) return true;
+            var c = new StringBuilder(256); GetClassName(h, c, 256);
+            var t = new StringBuilder(512); GetWindowText(h, t, 512);
+            if (t.Length > 0) sb.AppendLine(c + " | " + t);
+            return true;
+        }, IntPtr.Zero);
+        return sb.ToString();
+    }
+
     // What the window shows on the screen (without the invisible resize border)
     public static Bitmap Capture(IntPtr h)
     {
@@ -71,7 +86,8 @@ function Wait-Window([string]$Class, [string]$Title, [int]$Seconds = 30) {
         if ($h -ne [IntPtr]::Zero) { return $h }
         Start-Sleep -Milliseconds 250
     }
-    Write-Warning "no window: class=$Class title=$Title"
+    Write-Warning "no window: class=$Class title=$Title; visible windows:"
+    Write-Host ([Win]::List())
     return [IntPtr]::Zero
 }
 
@@ -118,7 +134,7 @@ if ($menu -ne [IntPtr]::Zero) {
 # ── The installer: first page and the options page ───────────────────────────
 if ($Setup) {
     Start-Process $Setup -ArgumentList "/LANG=english"
-    $wiz = Wait-Window $null "Setup - Waffle DiskFlashback" 60
+    $wiz = Wait-Window "TWizardForm" $null 60
     Save-Window $wiz "windows-installer-license.png"
     if ($wiz -ne [IntPtr]::Zero) {
         # Accept the license, Next (folder), Next: the tasks page
@@ -136,4 +152,6 @@ if ($Setup) {
 # ── Quit the app (it unmounts the images) ────────────────────────────────────
 Start-Process $tray -ArgumentList "--quit" -Wait
 Start-Sleep -Seconds 5
+Write-Host "--- app log"
+Get-Content "$env:LOCALAPPDATA\Waffle\WaffleDiskFlashback.log" -ErrorAction SilentlyContinue
 Get-ChildItem $Out

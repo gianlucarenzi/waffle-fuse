@@ -67,13 +67,22 @@ if tray="$(xdotool search --onlyvisible --class stalonetray | head -1)"; then
     # The icon is the first one in the tray: right click opens the menu
     xdotool mousemove $((X + 12)) $((Y + 12)) click 3
     sleep 1.5
-    import -window root -crop 600x440+$((X + WIDTH - 600))+0 +repage "$OUT/linux-tray-menu.png" && echo "saved linux-tray-menu.png"
+    # The tray and the menu, without the empty (black) screen around them
+    import -window root -crop 600x440+$((X + WIDTH - 600))+0 +repage "$WORK/menu.png" &&
+        convert "$WORK/menu.png" -fuzz 3% -trim +repage -bordercolor black -border 8 "$OUT/linux-tray-menu.png" &&
+        echo "saved linux-tray-menu.png"
     xdotool key Escape
 else
     echo "::warning::no tray"; cat "$WORK/daemon.log"
 fi
 
 # ── Graphical installer ──────────────────────────────────────────────────────
+# The optional packages it checks for, as on a complete desktop (CI: the tray
+# screenshot above needs the X11 fallback, without AppIndicator)
+if [ -n "${CI:-}" ]; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        gir1.2-ayatanaappindicator3-0.1 polkitd pkexec >/dev/null 2>&1 || true
+fi
 python3 "$ROOT/scripts/waffle-installer.py" >"$WORK/installer.log" 2>&1 &
 if w="$(find_window "waffle-fuse installer")"; then
     xdotool windowmove "$w" 80 60
