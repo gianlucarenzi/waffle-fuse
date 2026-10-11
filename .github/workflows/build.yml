@@ -299,9 +299,11 @@ jobs:
             local dir="$1" base mnt
             base="${dir:-$HOME/Floppy}"; mnt="$base/AppTest"
             ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
-            # "Open With": the app mounts the image as a virtual disk
-            if [ -n "$dir" ]; then open --env WAFFLE_DEBUG=1 --env WAFFLE_MOUNT_DIR="$dir" -a "$APP" "$W/t.adf"
-            else open --env WAFFLE_DEBUG=1 -a "$APP" "$W/t.adf"; fi
+            # The app mounts the image as a virtual disk.  Started from the shell:
+            # on the runners, an NFS mount from a process of the GUI session fails
+            # (FUSE-T: mount exit 66), while apps using FUSE-T work on real Macs
+            if [ -n "$dir" ]; then export WAFFLE_MOUNT_DIR="$dir"; else unset WAFFLE_MOUNT_DIR; fi
+            WAFFLE_DEBUG=1 "$APP/Contents/MacOS/WaffleDiskFlashback" "$W/t.adf" >/dev/null 2>&1 &
             for _ in $(seq 60); do is_mounted "$mnt" && break; sleep 0.5; done
             if ! is_mounted "$mnt"; then
               echo "::warning::the app did not mount the image in $base"; show
@@ -321,6 +323,12 @@ jobs:
             umount "$W/check"; wait $P
             [ $ok -eq 0 ] && echo "app run in $base: OK" || { echo "::warning::file not in the image"; return 1; }
           }
+          # The app starts through LaunchServices and stays up
+          open -a "$APP"
+          sleep 5
+          pgrep -x WaffleDiskFlashback || { echo "::error::the app did not start"; show; exit 1; }
+          pkill -TERM -x WaffleDiskFlashback
+          for _ in $(seq 40); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.25; done
           set +e
           app_run "$W/mnt"; A=$?
           app_run ""; B=$?

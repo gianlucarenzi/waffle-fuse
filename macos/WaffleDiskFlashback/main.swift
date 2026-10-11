@@ -310,6 +310,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         cleanupStaleMounts()
         findPort()
+
+        // Images given on the command line, as "Open With" would
+        for arg in CommandLine.arguments.dropFirst()
+            where ["adf", "img", "ima"].contains((arg as NSString).pathExtension.lowercased())
+                && FileManager.default.fileExists(atPath: arg) {
+            openImage(URL(fileURLWithPath: arg).resolvingSymlinksInPath().path)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
