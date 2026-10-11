@@ -157,8 +157,7 @@ xattr -dr com.apple.quarantine .
 * **Waffle Floppy.command**: double-click it in the Finder to mount the floppy in the drive
   under `~/Floppy/<volume name>` and open it; double-click it again to eject the disk
   (pending writes are completed first). It runs `waffle-mount.sh`, the same one-click
-  script as the Linux menu entries. Close WaffleCopyPRO first: only one program at a time
-  can use the drive.
+  script as the Linux menu entries.
 * **From the Terminal**: the drive is `/dev/cu.usbserial-*` or `/dev/cu.usbmodem*`
   (`ls /dev/cu.*`), unmount with `umount`; everything in [Manual use](#manual-use)
   applies, e.g. `waffle-fuse /dev/cu.usbserial-XXXX --automount ~/Floppy`.

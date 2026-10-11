@@ -262,6 +262,8 @@ PID=$!
 for _ in $(seq 50); do is_mounted "$WORK/auto/WAFFLE" && break; sleep 0.1; done
 if is_mounted "$WORK/auto/WAFFLE"; then
     ok "mounted on <dir>/<volume label>"
+    # On macOS the event follows the mount by up to 50 ms (the driver waits to see it)
+    for _ in $(seq 50); do grep -q "^WAFFLE event=mounted" "$WORK/auto.log" && break; sleep 0.1; done
     grep -q "^WAFFLE event=mounted mountpoint=$WORK/auto/WAFFLE" "$WORK/auto.log" && ok "mounted event" || bad "mounted event"
     grep -qx "Name=WAFFLE" "$WORK/auto/WAFFLE/.xdg-volume-info" && grep -qx "Icon=waffle-dos-floppy" "$WORK/auto/WAFFLE/.xdg-volume-info" \
         && grep -qx "IconFile=.waffle-icon.svg" "$WORK/auto/WAFFLE/.xdg-volume-info" \

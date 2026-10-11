@@ -465,6 +465,11 @@ static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
 
 int main(int argc, char* argv[])
 {
+    // The events on stdout go to a pipe when a tray daemon or app runs us: if
+    // it quits while a disk is mounted, a write must not kill the driver
+    // (pending changes would never reach the disk)
+    signal(SIGPIPE, SIG_IGN);
+
     if (argc >= 3 && strcmp(argv[1], "--probe") == 0)
     {
         int r = WaffleDisk::probe(argv[2]);

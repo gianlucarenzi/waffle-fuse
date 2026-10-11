@@ -231,7 +231,7 @@ jobs:
           echo "$FUSE_T_SHA256  $PKG" | shasum -a 256 -c -
           sudo installer -pkg "$PKG" -target /
           ls -l /usr/local/lib/libfuse3* /usr/local/include/fuse3/fuse.h
-          brew install coreutils dosfstools
+          brew install coreutils dosfstools librsvg
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs "setuptools<81" || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
 
@@ -265,24 +265,98 @@ jobs:
           export TEST_PYTHON="$RUNNER_TEMP/venv/bin/python"
           tests/run-tests.sh
 
-      - name: Package
+      - name: Package version
+        # Release tag vX.Y.Z -> X.Y.Z; manual runs -> 0.0.0.dev<run number>
         run: |
           case "$GITHUB_REF" in
             refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
             *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
           esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the menu bar app
+        run: macos/build-app.sh "$VERSION" dist
+
+      - name: Test the app (open an image, write to it, quit)
+        timeout-minutes: 8
+        run: |
+          APP="$PWD/dist/Waffle DiskFlashback.app"
+          W=$(mktemp -d /tmp/apptest.XXXXXX)
+          is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
+          show() {
+            echo "--- app log"; grep -v -E '^\S+ \S+   \[--image\] ( |unique|INIT|flags|max_|congestion|time_gran|getattr|statfs|LOOKUP|lookup)' "$HOME/Library/Logs/WaffleDiskFlashback.log" 2>/dev/null | head -80
+            echo "--- FUSE-T log"; tail -12 "$HOME/Library/Logs/fuse-t/fuse-t.log" 2>/dev/null
+            echo "--- extended attributes of the mount dirs"
+            for d in "$base" "$base/AppTest" "$HOME/Floppy"; do [ -e "$d" ] && { ls -lde@ "$d"; xattr -l "$d"; }; done
+            echo "--- how fuse-t resolves"; grep -i fuse /etc/hosts || echo "(not in /etc/hosts)"
+            echo "--- local network privacy (system log)"
+            log show --last 1m --style compact \
+              --predicate 'eventMessage CONTAINS[c] "local network" OR eventMessage CONTAINS[c] "prohibit" OR eventMessage CONTAINS[c] "WaffleDiskFlashback" OR eventMessage CONTAINS[c] "waffle-diskflashback"' \
+              2>/dev/null | grep -v "log run noninteractively" | tail -30
+          }
+          # One run of the app: $1 = mount dir ("" = default ~/Floppy); 0 if all went well
+          app_run() {
+            local dir="$1" base mnt
+            base="${dir:-$HOME/Floppy}"; mnt="$base/AppTest"
+            ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
+            # The app mounts the image as a virtual disk.  Started from the shell:
+            # on the runners, an NFS mount from a process of the GUI session fails
+            # (FUSE-T: mount exit 66), while apps using FUSE-T work on real Macs
+            if [ -n "$dir" ]; then export WAFFLE_MOUNT_DIR="$dir"; else unset WAFFLE_MOUNT_DIR; fi
+            WAFFLE_DEBUG=1 "$APP/Contents/MacOS/WaffleDiskFlashback" "$W/t.adf" >/dev/null 2>&1 &
+            for _ in $(seq 60); do is_mounted "$mnt" && break; sleep 0.5; done
+            if ! is_mounted "$mnt"; then
+              echo "::warning::the app did not mount the image in $base"; show
+              pkill -KILL -x WaffleDiskFlashback; sleep 1; return 1
+            fi
+            echo "written through the app" > "$mnt/hello.txt"
+            # Quit (SIGTERM, like Quit in the menu): unmount cleanly, then exit
+            pkill -TERM -x WaffleDiskFlashback
+            for _ in $(seq 120); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.5; done
+            if pgrep -x WaffleDiskFlashback >/dev/null; then echo "::warning::the app did not quit"; show; return 1; fi
+            if is_mounted "$mnt"; then echo "::warning::still mounted after quitting"; show; return 1; fi
+            # The file reached the image
+            mkdir -p "$W/check"
+            ./waffle-fuse --image "$W/t.adf" "$W/check" -f & P=$!
+            for _ in $(seq 60); do is_mounted "$W/check" && break; sleep 0.5; done
+            grep -q "written through the app" "$W/check/hello.txt"; local ok=$?
+            umount "$W/check"; wait $P
+            [ $ok -eq 0 ] && echo "app run in $base: OK" || { echo "::warning::file not in the image"; return 1; }
+          }
+          # The app starts through LaunchServices and stays up
+          open -a "$APP"
+          sleep 5
+          pgrep -x WaffleDiskFlashback || { echo "::error::the app did not start"; show; exit 1; }
+          pkill -TERM -x WaffleDiskFlashback
+          for _ in $(seq 40); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.25; done
+          set +e
+          app_run "$W/mnt"; A=$?
+          app_run ""; B=$?
+          echo "mount dir outside home: $A, ~/Floppy: $B"
+          [ $A -eq 0 ] && [ $B -eq 0 ]
+
+      - name: Package
+        run: |
           NAME="waffle-fuse-${VERSION}-macos-universal"
           mkdir -p "dist/$NAME"
           install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          macos/make-dmg.sh "dist/Waffle DiskFlashback.app" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
+          # The disk image opens and holds the app
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
+          ls -l "$RUNNER_TEMP/dmg"
+          codesign --verify --strict "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app"
+          hdiutil detach "$RUNNER_TEMP/dmg"
           ls -l dist
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: waffle-fuse-packages-macos
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.dmg
           if-no-files-found: error
 
   release:
