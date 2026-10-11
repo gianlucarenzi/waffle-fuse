@@ -308,13 +308,14 @@ the WinFsp sources):
 make CXX=x86_64-w64-mingw32-g++-posix WINFSP_INC=/path/to/winfsp/inc
 ```
 
-The installer is built with [Inno Setup 6](https://jrsoftware.org/isinfo.php) from
-`windows/waffle-fuse.iss`, on Windows (MSYS2) or on Linux through wine (Inno Setup
-installed in the default wine prefix; `ISCC=` and `WINE=` choose others). The script
-downloads the WinFsp MSI to bundle and checks its SHA-256:
+The installer is built with [Inno Setup 7](https://jrsoftware.org/isinfo.php) from
+`windows/waffle-fuse.iss`: a 64-bit installer (`SetupArchitecture=x64`; Inno Setup 6 still
+works and builds a 32-bit one). On Windows (MSYS2) or on Linux through wine (`wine64` is
+enough; Inno Setup installed in the default wine prefix, `ISCC=` and `WINE=` choose
+others). The script downloads the WinFsp MSI to bundle and checks its SHA-256:
 
 ```bash
-windows/make-installer.sh 1.0.0      # -> dist/waffle-fuse-setup-1.0.0.exe
+windows/make-installer.sh 1.1.0      # -> dist/waffle-fuse-setup-1.1.0.exe
 ```
 
 ### Installation from source

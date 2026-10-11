@@ -473,11 +473,23 @@ jobs:
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
-      - name: Install Inno Setup
+      - name: Install Inno Setup 7 (64-bit)
         shell: pwsh
+        env:
+          INNO_VERSION: '7.1.0'
+          INNO_TAG: is-7_1_0
+          INNO_SHA256: 0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f
         run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
-          Get-Item "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $exe = "$env:RUNNER_TEMP\innosetup-$env:INNO_VERSION-x64.exe"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$env:INNO_TAG/innosetup-$env:INNO_VERSION-x64.exe" -OutFile $exe
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:INNO_SHA256) { throw "Inno Setup: checksum mismatch" }
+          $dir = "$env:ProgramFiles\Inno Setup 7"
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\inno.log`"" -Wait -PassThru
+          if (-not (Test-Path "$dir\ISCC.exe")) {
+            Write-Host "exit code $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\inno.log" -Tail 30
+            Get-ChildItem "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:LOCALAPPDATA\Programs" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "ISCC.exe not in $dir"
+          }
 
       - name: Build the installer
         run: windows/make-installer.sh "$VERSION"
@@ -504,6 +516,9 @@ jobs:
           for ($i = 0; $i -lt 30 -and ((Test-Path "$app\waffle-fuse.exe") -or (OnPath)); $i++) { Start-Sleep 1 }
           if (Test-Path "$app\waffle-fuse.exe") { throw "still installed after the uninstall" }
           if (OnPath) { throw "still on the PATH after the uninstall" }
+          # A 64-bit installer (PE32+, machine AMD64)
+          $b = [IO.File]::ReadAllBytes($setup); $pe = [BitConverter]::ToInt32($b, 0x3C)
+          if ([BitConverter]::ToUInt16($b, $pe + 4) -ne 0x8664) { throw "the installer is not a 64-bit program" }
           Write-Host "installer: OK"
 
       - name: Upload package

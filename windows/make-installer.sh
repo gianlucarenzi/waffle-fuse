@@ -1,10 +1,11 @@
 #!/bin/bash
-# Build the Windows installer of waffle-fuse with Inno Setup 6:
+# Build the Windows installer of waffle-fuse with Inno Setup 7 (a 64-bit
+# installer; Inno Setup 6 also works and builds a 32-bit one):
 # dist/waffle-fuse-setup-<version>.exe, from waffle-fuse.exe (run make first).
 #
 # Usage: windows/make-installer.sh [version]
 #
-# On Windows (MSYS2 shell) ISCC.exe is taken from Program Files; on Linux it
+# On Windows (MSYS2 shell) ISCC.exe is looked for in Program Files; on Linux it
 # runs through wine (Inno Setup installed in the default wine prefix).  Set
 # ISCC to the path of ISCC.exe, WINE to another wine command, if needed.
 # The WinFsp MSI bundled in the installer is downloaded once into
@@ -37,23 +38,32 @@ fi
 NUMERIC="$(echo "$VERSION" | sed -E 's/^([0-9]+(\.[0-9]+){0,3}).*/\1/')"
 [[ "$NUMERIC" =~ ^[0-9]+(\.[0-9]+)*$ ]] || NUMERIC=0.0.0
 
+# Inno Setup 7 (64-bit edition first), else Inno Setup 6, under the given root
+find_iscc() {
+    local d
+    for d in "Program Files/Inno Setup 7" "Program Files (x86)/Inno Setup 7" "Program Files (x86)/Inno Setup 6"; do
+        [ -f "$1/$d/ISCC.exe" ] && { echo "$1/$d/ISCC.exe"; return; }
+    done
+    echo "$1/Program Files/Inno Setup 7/ISCC.exe"
+}
+
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
-        ISCC="${ISCC:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
+        ISCC="${ISCC:-$(find_iscc /c)}"
         RUN=()
         ISS="$(cygpath -w "$HERE/waffle-fuse.iss")"
         # Keep MSYS2 from turning the /D... options into paths
         export MSYS2_ARG_CONV_EXCL='*'
         ;;
     *)
-        ISCC="${ISCC:-${WINEPREFIX:-$HOME/.wine}/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
+        ISCC="${ISCC:-$(find_iscc "${WINEPREFIX:-$HOME/.wine}/drive_c")}"
         RUN=("${WINE:-wine}")
         ISS="$(winepath -w "$HERE/waffle-fuse.iss" 2>/dev/null)"
         ;;
 esac
 
 if [ ! -f "$ISCC" ]; then
-    echo "make-installer: Inno Setup 6 not found ($ISCC): install it from https://jrsoftware.org or set ISCC" >&2
+    echo "make-installer: Inno Setup not found ($ISCC): install Inno Setup 7 from https://jrsoftware.org or set ISCC" >&2
     exit 1
 fi
 
