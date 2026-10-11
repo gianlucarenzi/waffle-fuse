@@ -4,8 +4,8 @@
 #
 #   xvfb-run -s "-screen 0 1280x800x24" dbus-run-session docs/screenshots/linux.sh <out dir>
 #
-# Needs: waffle-fuse built in the repository, marco (MATE window manager),
-# caja, stalonetray, xdotool, ImageMagick, python3-gi with GTK 3.
+# Needs: waffle-fuse built in the repository, xfwm4, caja, stalonetray,
+# xdotool, ImageMagick, python3-gi with GTK 3 and librsvg (SVG icons).
 # The demo images of docs/examples are mounted as the desktop would.
 
 set -u
@@ -33,7 +33,7 @@ find_window() {     # <name>: first visible window whose title contains name
 
 # A desktop: window manager with frames, a light background
 xsetroot -solid '#3a6ea5' 2>/dev/null
-marco --replace --no-composite >/dev/null 2>&1 &
+xfwm4 --compositor=off >/dev/null 2>&1 &
 sleep 2
 
 # ── The demo images, mounted as the desktop does (volume name as folder) ─────
@@ -67,7 +67,7 @@ if tray="$(xdotool search --onlyvisible --class stalonetray | head -1)"; then
     # The icon is the first one in the tray: right click opens the menu
     xdotool mousemove $((X + 12)) $((Y + 12)) click 3
     sleep 1.5
-    import -window root -crop 520x360+$((X + WIDTH - 520))+0 +repage "$OUT/linux-tray-menu.png" && echo "saved linux-tray-menu.png"
+    import -window root -crop 600x440+$((X + WIDTH - 600))+0 +repage "$OUT/linux-tray-menu.png" && echo "saved linux-tray-menu.png"
     xdotool key Escape
 else
     echo "::warning::no tray"; cat "$WORK/daemon.log"

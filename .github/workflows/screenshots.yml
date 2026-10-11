@@ -15,7 +15,7 @@ on:
 
 jobs:
   linux:
-    name: Linux (Xvfb, MATE window manager, Caja)
+    name: Linux (Xvfb, Xfwm, Caja)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -27,8 +27,8 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential pkg-config libfuse3-dev fuse3 \
             xvfb x11-xserver-utils xdotool imagemagick dbus-x11 at-spi2-core \
-            marco caja stalonetray python3-gi gir1.2-gtk-3.0 libnotify-bin \
-            adwaita-icon-theme fonts-dejavu-core
+            xfwm4 caja stalonetray python3-gi gir1.2-gtk-3.0 libnotify-bin \
+            librsvg2-common adwaita-icon-theme fonts-dejavu-core
           sudo chmod 666 /dev/fuse
 
       - name: Build waffle-fuse
@@ -112,7 +112,8 @@ jobs:
         run: gh release download --pattern 'waffle-fuse-setup-*.exe' --dir "$env:RUNNER_TEMP"
 
       - name: Take the screenshots
-        shell: pwsh
+        # Windows PowerShell: System.Drawing for the screen captures
+        shell: powershell
         run: |
           $setup = (Get-ChildItem "$env:RUNNER_TEMP\waffle-fuse-setup-*.exe").FullName
           ./docs/screenshots/windows.ps1 -Out "$env:RUNNER_TEMP\shots" -Setup $setup
