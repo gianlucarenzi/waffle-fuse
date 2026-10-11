@@ -106,6 +106,7 @@ $root = Resolve-Path "$PSScriptRoot\..\.."
 $tray = Join-Path $root "WaffleDiskFlashback.exe"
 
 # ── The tray app opens the demo images on drive letters, in Explorer ─────────
+# (two waffle-fuse at once, each on its own free letter)
 $work = Join-Path $env:TEMP "waffle-shots"
 New-Item -ItemType Directory -Force $work | Out-Null
 Copy-Item "$root\docs\examples\WaffleDemo.adf", "$root\docs\examples\WAFFLEDOS.img" $work
