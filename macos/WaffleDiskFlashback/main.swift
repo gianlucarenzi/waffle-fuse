@@ -159,96 +159,47 @@ func notify(_ title: String, _ message: String) {
 
 // MARK: - A waffle-fuse child process
 
-/// responsibility_spawnattrs_setdisclaim (libSystem, not in the SDK headers):
-/// the child is not "responsible" to this app but to itself, like a command
-/// run from the Terminal.  FUSE-T's NFS mount fails (mount exit 66) when the
-/// driver is attributed to an app, and works from the command line.
-private typealias DisclaimFunction = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
-private let disclaimResponsibility: DisclaimFunction? = {
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),    // RTLD_DEFAULT
-                             "responsibility_spawnattrs_setdisclaim") else { return nil }
-    return unsafeBitCast(symbol, to: DisclaimFunction.self)
-}()
-
 /// waffle-fuse with its stdout events and exit delivered on the main queue, in order.
 final class Proc {
-    private(set) var pid: pid_t = 0
+    let process = Process()
     private(set) var stderrTail: [String] = []
     var cancelled = false
-    private let lock = NSLock()
-    private var exited = true
     private let onEvent: (([String: String]) -> Void)?
     private let onExit: ((Int32) -> Void)?
-
-    var isRunning: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return !exited
-    }
 
     init(_ args: [String], onEvent: (([String: String]) -> Void)? = nil, onExit: ((Int32) -> Void)? = nil) {
         self.onEvent = onEvent
         self.onExit = onExit
+        process.executableURL = URL(fileURLWithPath: waffleBin)
+        process.arguments = args
+        let out = Pipe(), err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+        process.standardInput = FileHandle.nullDevice
         let name = args.first ?? ""
         log("run: waffle-fuse \(args.joined(separator: " "))")
-
-        var outPipe: [Int32] = [-1, -1], errPipe: [Int32] = [-1, -1]
-        guard pipe(&outPipe) == 0, pipe(&errPipe) == 0 else {
-            log("cannot create pipes")
+        do {
+            try process.run()
+        } catch {
+            log("cannot run \(waffleBin): \(error.localizedDescription)")
             DispatchQueue.main.async { self.onExit?(127) }
             return
         }
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, outPipe[1], 1)
-        posix_spawn_file_actions_adddup2(&actions, errPipe[1], 2)
-        for fd in outPipe + errPipe { posix_spawn_file_actions_addclose(&actions, fd) }
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        // Only stdin/stdout/stderr reach the child, not the app's other descriptors
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
-        if let disclaim = disclaimResponsibility { _ = disclaim(&attributes, 1) }
-
-        let argv: [UnsafeMutablePointer<CChar>?] = ([waffleBin] + args).map { strdup($0) } + [nil]
-        let envp: [UnsafeMutablePointer<CChar>?] =
-            ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
-        var child: pid_t = 0
-        let rc = posix_spawn(&child, waffleBin, &actions, &attributes, argv, envp)
-        argv.forEach { free($0) }
-        envp.forEach { free($0) }
-        posix_spawn_file_actions_destroy(&actions)
-        posix_spawnattr_destroy(&attributes)
-        close(outPipe[1])
-        close(errPipe[1])
-        guard rc == 0 else {
-            log("cannot run \(waffleBin): \(String(cString: strerror(rc)))")
-            close(outPipe[0])
-            close(errPipe[0])
-            DispatchQueue.main.async { self.onExit?(127) }
-            return
-        }
-        pid = child
-        exited = false
-
-        let errHandle = FileHandle(fileDescriptor: errPipe[0], closeOnDealloc: true)
-        let outHandle = FileHandle(fileDescriptor: outPipe[0], closeOnDealloc: true)
         Thread.detachNewThread { [self] in
-            Proc.readLines(errHandle) { line in
+            Proc.readLines(err.fileHandleForReading) { line in
                 log("  [\(name)] \(line)")
                 DispatchQueue.main.async { self.stderrTail = Array((self.stderrTail + [line]).suffix(5)) }
             }
         }
         Thread.detachNewThread { [self] in
-            Proc.readLines(outHandle) { line in
+            Proc.readLines(out.fileHandleForReading) { line in
                 guard let ev = parseEvent(line) else { return }
                 if ev["event"] != "track" { log("  [\(name)] \(line)") }
                 DispatchQueue.main.async { if !self.cancelled { self.onEvent?(ev) } }
             }
-            var status: Int32 = 0
-            while waitpid(child, &status, 0) == -1 && errno == EINTR {}
-            // WIFEXITED / WEXITSTATUS / WTERMSIG
-            let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
-            self.lock.lock(); self.exited = true; self.lock.unlock()
+            self.process.waitUntilExit()
+            let code = self.process.terminationReason == .exit
+                ? self.process.terminationStatus : 128 + self.process.terminationStatus
             log("  [\(name)] exit \(code)")
             DispatchQueue.main.async { if !self.cancelled { self.onExit?(code) } }
         }
@@ -268,25 +219,17 @@ final class Proc {
         }
     }
 
-    func terminate() {
-        if isRunning { kill(pid, SIGTERM) }
-    }
-
-    func forceKill() {
-        if isRunning { kill(pid, SIGKILL) }
-    }
-
     /// Stop a waiting helper (never used on a mounted driver)
     func cancel() {
         cancelled = true
-        terminate()
+        if process.isRunning { process.terminate() }
     }
 
     /// Wait (off the main queue) until the process has exited, at most 'timeout' seconds
     func waitExit(timeout: TimeInterval, then done: @escaping () -> Void) {
         DispatchQueue.global().async {
             let deadline = Date().addingTimeInterval(timeout)
-            while self.isRunning && Date() < deadline { usleep(100_000) }
+            while self.process.isRunning && Date() < deadline { usleep(100_000) }
             DispatchQueue.main.async(execute: done)
         }
     }
@@ -388,12 +331,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if state == .busy { waits.append(p) }    // waffle-fuse stops between two tracks
         }
         for disk in images.values {
-            if let mp = disk.mountpoint { _ = unmount(mp) } else { disk.proc.terminate() }
+            if let mp = disk.mountpoint { _ = unmount(mp) } else { disk.proc.process.terminate() }
             waits.append(disk.proc)
         }
         DispatchQueue.global().async {
             let deadline = Date().addingTimeInterval(60)
-            while waits.contains(where: { $0.isRunning }) && Date() < deadline { usleep(100_000) }
+            while waits.contains(where: { $0.process.isRunning }) && Date() < deadline { usleep(100_000) }
             DispatchQueue.main.async {
                 if let tmp = self.job?.tmp, !tmp.isEmpty { try? FileManager.default.removeItem(atPath: tmp) }
                 log("quit")
@@ -626,7 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         p.cancel()
         proc = nil
         p.waitExit(timeout: 5) {
-            p.forceKill()
+            if p.process.isRunning { kill(p.process.processIdentifier, SIGKILL) }
             done()
         }
     }
@@ -804,7 +747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func jobCancel() {
         if let p = proc, job != nil, state == .busy {
             job!.cancelled = true
-            p.terminate()                   // waffle-fuse stops between two tracks
+            p.process.terminate()           // waffle-fuse stops between two tracks
         }
     }
 
