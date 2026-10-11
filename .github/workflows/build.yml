@@ -278,43 +278,47 @@ jobs:
         run: macos/build-app.sh "$VERSION" dist
 
       - name: Test the app (open an image, write to it, quit)
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
           APP="$PWD/dist/Waffle DiskFlashback.app"
           W=$(mktemp -d /tmp/apptest.XXXXXX)
-          MNT="$HOME/Floppy/AppTest"
-          show() {
-            echo "--- app log"; cat "$HOME/Library/Logs/WaffleDiskFlashback.log" 2>/dev/null | head -300
-            echo "--- FUSE-T log"; tail -50 "$HOME/Library/Logs/fuse-t/fuse-t.log" 2>/dev/null
-            echo "--- ~/Floppy"; ls -la "$HOME/Floppy" 2>/dev/null
-            echo "--- mounts"; mount | grep -v -E '^/dev/disk|devfs|map ' || true
-            echo "--- processes"; pgrep -lf -i waffle || true
-            echo "--- system log (nfs, mount, tcc)"
-            log show --last 3m --style compact \
-              --predicate 'process == "mount_nfs" OR process == "mount" OR process == "tccd" OR process == "kernel" AND eventMessage CONTAINS[c] "nfs"' \
-              2>/dev/null | grep -v -i "mDNSResponder" | grep -i -E "AUTHREQ|service|result|nfs|mount|denied|allow" | tail -60
-          }
-          trap show EXIT
-          ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
           is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
-          # "Open With": the app mounts the image as a virtual disk
-          open --env WAFFLE_DEBUG=1 -a "$APP" "$W/t.adf"
-          for _ in $(seq 60); do is_mounted "$MNT" && break; sleep 0.5; done
-          is_mounted "$MNT" || { echo "::error::the app did not mount the image"; exit 1; }
-          pgrep -x WaffleDiskFlashback
-          echo "written through the app" > "$MNT/hello.txt"
-          ls -l "$MNT"
-          # Quit (SIGTERM, like Quit in the menu): unmount cleanly, then exit
-          pkill -TERM -x WaffleDiskFlashback
-          for _ in $(seq 120); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.5; done
-          if pgrep -x WaffleDiskFlashback >/dev/null; then echo "::error::the app did not quit"; exit 1; fi
-          if is_mounted "$MNT"; then echo "::error::the image is still mounted after quitting"; exit 1; fi
-          # The file reached the image
-          mkdir "$W/check"
-          ./waffle-fuse --image "$W/t.adf" "$W/check" -f & P=$!
-          for _ in $(seq 60); do is_mounted "$W/check" && break; sleep 0.5; done
-          grep -q "written through the app" "$W/check/hello.txt"
-          umount "$W/check"; wait $P
+          show() {
+            echo "--- app log"; grep -v -E '^\S+ \S+   \[--image\] ( |unique|INIT|flags|max_|congestion|time_gran|getattr|statfs|LOOKUP|lookup)' "$HOME/Library/Logs/WaffleDiskFlashback.log" 2>/dev/null | head -80
+            echo "--- FUSE-T log"; tail -12 "$HOME/Library/Logs/fuse-t/fuse-t.log" 2>/dev/null
+            echo "--- tccd"; log show --last 2m --style compact --predicate 'process == "tccd"' 2>/dev/null | grep -i -E "waffle|mount_nfs|go-nfsv4|AUTHREQ_RESULT|service" | tail -25
+          }
+          # One run of the app: $1 = mount dir ("" = default ~/Floppy); 0 if all went well
+          app_run() {
+            local dir="$1" base mnt
+            base="${dir:-$HOME/Floppy}"; mnt="$base/AppTest"
+            ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
+            # "Open With": the app mounts the image as a virtual disk
+            if [ -n "$dir" ]; then open --env WAFFLE_DEBUG=1 --env WAFFLE_MOUNT_DIR="$dir" -a "$APP" "$W/t.adf"
+            else open --env WAFFLE_DEBUG=1 -a "$APP" "$W/t.adf"; fi
+            for _ in $(seq 60); do is_mounted "$mnt" && break; sleep 0.5; done
+            if ! is_mounted "$mnt"; then
+              echo "::warning::the app did not mount the image in $base"; show
+              pkill -KILL -x WaffleDiskFlashback; sleep 1; return 1
+            fi
+            echo "written through the app" > "$mnt/hello.txt"
+            # Quit (SIGTERM, like Quit in the menu): unmount cleanly, then exit
+            pkill -TERM -x WaffleDiskFlashback
+            for _ in $(seq 120); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.5; done
+            if pgrep -x WaffleDiskFlashback >/dev/null; then echo "::warning::the app did not quit"; show; return 1; fi
+            if is_mounted "$mnt"; then echo "::warning::still mounted after quitting"; show; return 1; fi
+            # The file reached the image
+            mkdir -p "$W/check"
+            ./waffle-fuse --image "$W/t.adf" "$W/check" -f & P=$!
+            for _ in $(seq 60); do is_mounted "$W/check" && break; sleep 0.5; done
+            grep -q "written through the app" "$W/check/hello.txt"; local ok=$?
+            umount "$W/check"; wait $P
+            [ $ok -eq 0 ] && echo "app run in $base: OK" || { echo "::warning::file not in the image"; return 1; }
+          }
+          app_run "$W/mnt"; A=$?
+          app_run ""; B=$?
+          echo "mount dir outside home: $A, ~/Floppy: $B"
+          [ $A -eq 0 ] && [ $B -eq 0 ]
 
       - name: Package
         run: |

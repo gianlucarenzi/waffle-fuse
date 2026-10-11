@@ -31,7 +31,16 @@ let waffleBin: String = {
 }()
 let fuseTLibrary = "/usr/local/lib/libfuse3.4.dylib"
 let fuseTSite = URL(string: "https://www.fuse-t.org")!
-let mountDir = (NSHomeDirectory() as NSString).appendingPathComponent("Floppy")
+/// Where disks are mounted, as <dir>/<volume name>: ~/Floppy, or the MountDir
+/// default (defaults write io.github.gianlucarenzi.waffle-diskflashback MountDir <dir>)
+/// or WAFFLE_MOUNT_DIR in the environment
+let mountDir: String = {
+    if let dir = ProcessInfo.processInfo.environment["WAFFLE_MOUNT_DIR"], !dir.isEmpty { return dir }
+    if let dir = UserDefaults.standard.string(forKey: "MountDir"), !dir.isEmpty {
+        return (dir as NSString).expandingTildeInPath
+    }
+    return (NSHomeDirectory() as NSString).appendingPathComponent("Floppy")
+}()
 let floppyImageSizes: Set<UInt64> = [901120, 1802240, 737280, 1474560]
 /// WAFFLE_DEBUG=1 in the environment: the driver logs the FUSE trace (-d)
 let driverDebug = ProcessInfo.processInfo.environment["WAFFLE_DEBUG"] != nil ? ["-d"] : []
@@ -272,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Startup / quit
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        log("Waffle DiskFlashback \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "?") started, driver \(waffleBin)")
+        log("Waffle DiskFlashback \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "?") started, driver \(waffleBin), disks in \(mountDir)")
         guard FileManager.default.fileExists(atPath: fuseTLibrary) else {
             log("FUSE-T not installed (\(fuseTLibrary) missing)")
             NSApp.activate(ignoringOtherApps: true)
