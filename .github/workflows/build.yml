@@ -288,10 +288,11 @@ jobs:
             echo "--- FUSE-T log"; tail -12 "$HOME/Library/Logs/fuse-t/fuse-t.log" 2>/dev/null
             echo "--- extended attributes of the mount dirs"
             for d in "$base" "$base/AppTest" "$HOME/Floppy"; do [ -e "$d" ] && { ls -lde@ "$d"; xattr -l "$d"; }; done
-            echo "--- mount, mount_nfs, nfs (system log)"
-            log show --last 2m --style compact \
-              --predicate 'process == "mount" OR process == "mount_nfs" OR senderImagePath CONTAINS[c] "nfs" OR eventMessage CONTAINS[c] "mount_nfs"' \
-              2>/dev/null | grep -v mDNSResponder | tail -30
+            echo "--- how fuse-t resolves"; grep -i fuse /etc/hosts || echo "(not in /etc/hosts)"
+            echo "--- local network privacy (system log)"
+            log show --last 1m --style compact \
+              --predicate 'eventMessage CONTAINS[c] "local network" OR eventMessage CONTAINS[c] "prohibit" OR eventMessage CONTAINS[c] "WaffleDiskFlashback" OR eventMessage CONTAINS[c] "waffle-diskflashback"' \
+              2>/dev/null | grep -v "log run noninteractively" | tail -30
           }
           # One run of the app: $1 = mount dir ("" = default ~/Floppy); 0 if all went well
           app_run() {

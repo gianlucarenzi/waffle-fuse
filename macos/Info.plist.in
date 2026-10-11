@@ -27,6 +27,9 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- FUSE-T serves mounted floppies over NFS on this Mac (127.0.0.1) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Waffle DiskFlashback mounts floppies with FUSE-T, which serves them through a network connection inside this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>GPL-3.0</string>
 	<!-- "Open With": floppy images as virtual disks; Alternate, so the
