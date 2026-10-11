@@ -1,0 +1,135 @@
+name: Screenshots
+
+# Screenshots of the documentation (docs/images/screenshots), taken on real
+# Linux, macOS and Windows desktops of the GitHub runners with the demo images
+# of docs/examples.  Run from the Actions tab; the "screenshots" artifact holds
+# the PNG files to commit.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (Xvfb, MATE window manager, Caja)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools and a small desktop
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential pkg-config libfuse3-dev fuse3 \
+            xvfb x11-xserver-utils xdotool imagemagick dbus-x11 at-spi2-core \
+            marco caja stalonetray python3-gi gir1.2-gtk-3.0 libnotify-bin \
+            adwaita-icon-theme fonts-dejavu-core
+          sudo chmod 666 /dev/fuse
+
+      - name: Build waffle-fuse
+        run: make -j"$(nproc)"
+
+      - name: Take the screenshots
+        run: |
+          xvfb-run -s "-screen 0 1280x800x24" dbus-run-session -- \
+            bash docs/screenshots/linux.sh "$RUNNER_TEMP/shots"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-linux
+          path: ${{ runner.temp }}/shots/*.png
+
+  macos:
+    name: macOS (Finder, menu bar app)
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      FUSE_T_VERSION: '1.2.9'
+      FUSE_T_SHA256: a1b893740ded8ea034f1acc522ded1144f4a567a1f416daef8c1441cf2662f7f
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FUSE-T
+        run: |
+          PKG="$RUNNER_TEMP/fuse-t.pkg"
+          curl -sSL -o "$PKG" "https://github.com/macos-fuse-t/fuse-t/releases/download/${FUSE_T_VERSION}/fuse-t-macos-installer-${FUSE_T_VERSION}.pkg"
+          echo "$FUSE_T_SHA256  $PKG" | shasum -a 256 -c -
+          sudo installer -pkg "$PKG" -target /
+
+      - name: Get the app (latest release)
+        run: |
+          gh release download --pattern 'Waffle-DiskFlashback-*.dmg' --dir "$RUNNER_TEMP"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "$RUNNER_TEMP"/Waffle-DiskFlashback-*.dmg
+          cp -R "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app" "$RUNNER_TEMP/"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+
+      - name: Take the screenshots
+        run: bash docs/screenshots/macos.sh "$RUNNER_TEMP/shots" "$RUNNER_TEMP/Waffle DiskFlashback.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-macos
+          path: ${{ runner.temp }}/shots/*.png
+
+  windows:
+    name: Windows (Explorer, tray app, installer)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WINFSP_VERSION: '2.1'
+      WINFSP_MSI: winfsp-2.1.25156.msi
+      WINFSP_SHA256: 073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install WinFsp
+        shell: pwsh
+        run: |
+          $msi = "$env:RUNNER_TEMP\$env:WINFSP_MSI"
+          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v$env:WINFSP_VERSION/$env:WINFSP_MSI" -OutFile $msi
+          if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $env:WINFSP_SHA256) { throw "WinFsp: checksum mismatch" }
+          Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', 'INSTALLLEVEL=1000' -Wait
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: make mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build waffle-fuse.exe and WaffleDiskFlashback.exe
+        shell: msys2 {0}
+        run: make -j"$(nproc)"
+
+      - name: Get the installer (latest release)
+        shell: pwsh
+        run: gh release download --pattern 'waffle-fuse-setup-*.exe' --dir "$env:RUNNER_TEMP"
+
+      - name: Take the screenshots
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem "$env:RUNNER_TEMP\waffle-fuse-setup-*.exe").FullName
+          ./docs/screenshots/windows.ps1 -Out "$env:RUNNER_TEMP\shots" -Setup $setup
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-windows
+          path: ${{ runner.temp }}/shots/*.png
+
+  collect:
+    name: All screenshots
+    needs: [linux, macos, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: screenshots-*
+          merge-multiple: true
+          path: shots
+      - run: ls -l shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/*.png
