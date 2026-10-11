@@ -1,4 +1,4 @@
-﻿; waffle-fuse installer for Windows (Inno Setup 6)
+﻿; waffle-fuse installer for Windows (Inno Setup 7, 64-bit; Inno Setup 6 builds a 32-bit one)
 ;
 ; Built by windows/make-installer.sh, which downloads the WinFsp MSI into
 ; windows/build/ and passes the version:
@@ -48,6 +48,11 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#if Ver >= EncodeVer(7, 0, 0)
+; Inno Setup 7: Setup and the uninstaller are 64-bit programs too (with
+; Inno Setup 6 they stay 32-bit)
+SetupArchitecture=x64
+#endif
 ; Windows 10 1903: UTF-8 process code page (see waffle-fuse.exe.manifest)
 MinVersion=10.0.18362
 ChangesEnvironment=yes
