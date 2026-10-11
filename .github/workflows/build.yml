@@ -258,14 +258,6 @@ jobs:
           vtool -show-build waffle-fuse | grep minos
           ./waffle-fuse --help | head -3
 
-      - name: FUSE-T diagnostics
-        # Temporary: one test suite with the FUSE debug trace on failures
-        timeout-minutes: 5
-        continue-on-error: true
-        run: |
-          export PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix dosfstools)/sbin:$PATH"
-          ONLY="FAT 720K" WAFFLE_DEBUG=1 LOG_TAIL=250 tests/run-tests.sh
-
       - name: Filesystem tests (disk images through FUSE-T)
         timeout-minutes: 15
         run: |

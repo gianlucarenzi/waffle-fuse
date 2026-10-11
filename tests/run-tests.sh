@@ -28,8 +28,9 @@ MKFS_FAT="$(command -v mkfs.fat || echo /sbin/mkfs.fat)"
 FSCK_FAT="$(command -v fsck.fat || echo /sbin/fsck.fat)"
 
 if [ "$(uname -s)" = Darwin ]; then
-    # A mountpoint is on another device than its parent directory
-    is_mounted() { [ -d "$1" ] && [ "$(stat -f %d "$1" 2>/dev/null)" != "$(stat -f %d "$1/.." 2>/dev/null)" ]; }
+    # A mountpoint is on another device than its parent directory.  The macOS
+    # stat: GNU stat (coreutils first in PATH) reads -f %d as free inodes
+    is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1" 2>/dev/null)" != "$(/usr/bin/stat -f %d "$1/.." 2>/dev/null)" ]; }
     fuse_umount() { umount "$1"; }
 else
     is_mounted() { mountpoint -q "$1"; }
