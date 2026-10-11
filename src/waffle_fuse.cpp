@@ -746,6 +746,18 @@ int main(int argc, char* argv[])
         {
             stopRequested = true;
         });
+#ifdef _WIN32
+        // A Windows program cannot send us a signal: the tray app sets the
+        // event Local\waffle-fuse-stop:<our pid> instead
+        static HANDLE stopEvent = CreateEventW(nullptr, TRUE, FALSE,
+                                               (L"Local\\waffle-fuse-stop:" + std::to_wstring(GetCurrentProcessId())).c_str());
+        if (stopEvent)
+            std::thread([]
+            {
+                WaitForSingleObject(stopEvent, INFINITE);
+                stopRequested = true;
+            }).detach();
+#endif
     }
 
     // --dump <port> <file> [--format amiga|dos] [--density dd|hd] [--tracks N] [--revs N]

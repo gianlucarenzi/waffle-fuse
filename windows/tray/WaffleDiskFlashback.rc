@@ -1,0 +1,33 @@
+// Waffle DiskFlashback resources: icons, manifest, version information
+#include <winuser.h>
+#include <winver.h>
+#include "resource.h"
+
+IDI_APP           ICON "../waffle-fuse.ico"
+IDI_TRAY_IDLE     ICON "tray-idle.ico"
+IDI_TRAY_MOUNTING ICON "tray-mounting.ico"
+IDI_TRAY_MOUNTED  ICON "tray-mounted.ico"
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "WaffleDiskFlashback.exe.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription",  "Waffle DiskFlashback - DrawBridge / Waffle floppy disks"
+            VALUE "ProductName",      "Waffle DiskFlashback"
+            VALUE "OriginalFilename", "WaffleDiskFlashback.exe"
+            VALUE "InternalName",     "WaffleDiskFlashback"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

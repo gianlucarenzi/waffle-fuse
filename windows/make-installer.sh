@@ -19,8 +19,8 @@ WINFSP_VERSION=2.1
 WINFSP_MSI=winfsp-2.1.25156.msi
 WINFSP_SHA256=073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a
 
-if [ ! -f "$HERE/../waffle-fuse.exe" ]; then
-    echo "make-installer: build waffle-fuse.exe first (make)" >&2
+if [ ! -f "$HERE/../waffle-fuse.exe" ] || [ ! -f "$HERE/../WaffleDiskFlashback.exe" ]; then
+    echo "make-installer: build waffle-fuse.exe and WaffleDiskFlashback.exe first (make)" >&2
     exit 1
 fi
 

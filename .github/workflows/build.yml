@@ -398,20 +398,22 @@ jobs:
             python
             mingw-w64-ucrt-x86_64-gcc
 
-      - name: Build waffle-fuse.exe
+      - name: Build waffle-fuse.exe and WaffleDiskFlashback.exe
         run: |
           make -j"$(nproc)"
-          strip waffle-fuse.exe
+          strip waffle-fuse.exe WaffleDiskFlashback.exe
 
       - name: Check binary
         # Only Windows system DLLs: no MinGW runtime, and WinFsp loaded at run time
         run: |
-          echo "--- DLLs needed:"
-          objdump -p waffle-fuse.exe | grep 'DLL Name'
-          if objdump -p waffle-fuse.exe | grep -iE 'DLL Name: (libstdc|libgcc|libwinpthread|winfsp)'; then
-            echo "::error::waffle-fuse.exe must not need the MinGW runtime or link WinFsp"
-            exit 1
-          fi
+          for exe in waffle-fuse.exe WaffleDiskFlashback.exe; do
+            echo "--- DLLs needed by $exe:"
+            objdump -p $exe | grep 'DLL Name'
+            if objdump -p $exe | grep -iE 'DLL Name: (libstdc|libgcc|libwinpthread|winfsp)'; then
+              echo "::error::$exe must not need the MinGW runtime or link WinFsp"
+              exit 1
+            fi
+          done
           ./waffle-fuse.exe --help 2>&1 | head -3
 
       - name: Filesystem tests (disk images through WinFsp)
@@ -424,6 +426,34 @@ jobs:
           export PATH="$PATH:$VENV/bin"
           export TEST_PYTHON="$VENV/bin/python"
           tests/run-tests.sh
+
+      - name: Test the tray app (open an image, write to it, quit)
+        timeout-minutes: 5
+        run: |
+          W="$(mktemp -d)"
+          LOG="$(cygpath -u "$LOCALAPPDATA")/Waffle/WaffleDiskFlashback.log"
+          is_mounted() { [ -d "$1" ]; }
+          show() { echo "--- app log"; cat "$LOG" 2>/dev/null; }
+          ./waffle-fuse.exe --format-image "$W/t.adf" ffs dd AppTest
+          # Images are mounted under WAFFLE_MOUNT_DIR\<volume name> instead of a drive letter
+          export WAFFLE_MOUNT_DIR="$(cygpath -w "$W/mnt")"
+          ./WaffleDiskFlashback.exe "$(cygpath -w "$W/t.adf")" &
+          APP=$!
+          for _ in $(seq 60); do is_mounted "$W/mnt/AppTest" && break; sleep 0.5; done
+          is_mounted "$W/mnt/AppTest" || { echo "::error::the app did not mount the image"; show; exit 1; }
+          echo "written through the app" > "$W/mnt/AppTest/hello.txt"
+          # A second instance with --quit: the running app unmounts cleanly, then exits
+          ./WaffleDiskFlashback.exe --quit
+          for _ in $(seq 120); do kill -0 $APP 2>/dev/null || break; sleep 0.5; done
+          if kill -0 $APP 2>/dev/null; then echo "::error::the app did not quit"; show; exit 1; fi
+          if is_mounted "$W/mnt/AppTest"; then echo "::error::still mounted after quitting"; show; exit 1; fi
+          # The file reached the image
+          ./waffle-fuse.exe --image "$W/t.adf" "$W/check" -f & P=$!
+          for _ in $(seq 60); do is_mounted "$W/check" && break; sleep 0.5; done
+          grep -q "written through the app" "$W/check/hello.txt"; ok=$?
+          ./waffle-fuse.exe --unmount "$W/check"; wait $P
+          show
+          [ $ok -eq 0 ] && echo "tray app: OK" || { echo "::error::file not in the image"; exit 1; }
 
       - name: Package version
         # Release tag vX.Y.Z -> X.Y.Z; manual runs -> 0.0.0.dev<run number>
@@ -439,7 +469,7 @@ jobs:
         run: |
           $name = "waffle-fuse-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "dist\$name" | Out-Null
-          Copy-Item waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
+          Copy-Item WaffleDiskFlashback.exe, waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
@@ -460,9 +490,11 @@ jobs:
         run: |
           $setup = "dist\waffle-fuse-setup-$env:VERSION.exe"
           $app = "$env:ProgramFiles\waffle-fuse"
-          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath', "/LOG=$env:RUNNER_TEMP\setup.log" -Wait -PassThru
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath,associate', "/LOG=$env:RUNNER_TEMP\setup.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup failed: $($p.ExitCode)" }
           & "$app\waffle-fuse.exe" --help 2>&1 | Select-Object -First 3
+          if (-not (Test-Path "$app\WaffleDiskFlashback.exe")) { throw "WaffleDiskFlashback.exe not installed" }
+          if ((Get-ItemProperty 'Registry::HKEY_CLASSES_ROOT\Waffle.FloppyImage\shell\open\command').'(default)' -notlike '*WaffleDiskFlashback.exe*') { throw "image association missing" }
           $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
           if (-not ($path.Split(';') -contains $app)) { throw "not added to the PATH: $path" }
           $p = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru

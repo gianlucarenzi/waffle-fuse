@@ -72,6 +72,9 @@ OBJS     := $(ALL_SRCS:.cpp=.o)
 ifdef WINDOWS
 TARGET   := waffle-fuse.exe
 RES_OBJ  := windows/waffle-fuse.res.o
+# Tray app (Win32, no other dependency), next to waffle-fuse.exe
+TRAY     := WaffleDiskFlashback.exe
+TRAY_OBJ := windows/tray/WaffleDiskFlashback.o windows/tray/WaffleDiskFlashback.res.o
 else
 TARGET   := waffle-fuse
 RES_OBJ  :=
@@ -90,10 +93,23 @@ src/waffle_fuse.o: src/icons_embedded.h
 # ── Build rules ───────────────────────────────────────────────────────────────
 .PHONY: all clean install test
 
-all: $(TARGET)
+all: $(TARGET) $(TRAY)
 
 $(TARGET): $(OBJS) $(RES_OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
+
+ifdef WINDOWS
+$(TRAY): $(TRAY_OBJ)
+	$(CXX) -municode -mwindows -o $@ $^ -static -lcomctl32 -lshell32 -lole32 -lcomdlg32 -luuid $(EXTRA_LDFLAGS)
+
+windows/tray/WaffleDiskFlashback.o: windows/tray/WaffleDiskFlashback.cpp windows/tray/resource.h
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00 $(EXTRA_CXXFLAGS) -c $< -o $@
+
+windows/tray/WaffleDiskFlashback.res.o: windows/tray/WaffleDiskFlashback.rc windows/tray/resource.h \
+		windows/tray/WaffleDiskFlashback.exe.manifest windows/tray/tray-idle.ico \
+		windows/tray/tray-mounting.ico windows/tray/tray-mounted.ico windows/waffle-fuse.ico
+	$(WINDRES) -O coff -I windows/tray $< -o $@
+endif
 
 # Windows: manifest (UTF-8 code page, long paths), icon and version information
 windows/waffle-fuse.res.o: windows/waffle-fuse.rc windows/waffle-fuse.exe.manifest windows/waffle-fuse.ico
@@ -103,7 +119,7 @@ windows/waffle-fuse.res.o: windows/waffle-fuse.rc windows/waffle-fuse.exe.manife
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RES_OBJ) src/icons_embedded.h
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RES_OBJ) $(TRAY) $(TRAY_OBJ) src/icons_embedded.h
 
 install: $(TARGET)
 	install -m 755 $(TARGET) $(PREFIX)/bin/$(TARGET)
