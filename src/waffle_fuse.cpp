@@ -19,9 +19,10 @@
 //   WAFFLE event=removed | removed-dirty | write-error | flushed
 //   WAFFLE error=<port|nodisk|unknown-format|drive|filesystem|mount>
 
-#define FUSE_USE_VERSION 31
-#include <fuse3/fuse.h>
+#include "fuse_compat.h"
+#ifndef _WIN32
 #include <fuse3/fuse_lowlevel.h>
+#endif
 
 #include <cstdio>
 #include <csignal>
@@ -35,10 +36,16 @@
 #include <atomic>
 #include <thread>
 #include <sys/stat.h>
-#include <dirent.h>
 #include <fcntl.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#else
+#include <dirent.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include "disk_cache.h"
 #include "fat_fs.h"
@@ -99,14 +106,6 @@ static void emit(const std::string& line)
     std::cout << "WAFFLE " << line << std::endl;
 }
 
-// Is 'path' a mountpoint (on another device than its parent directory)?
-static bool isMountpoint(const std::string& path)
-{
-    struct stat st, parent;
-    return stat(path.c_str(), &st) == 0 && stat((path + "/..").c_str(), &parent) == 0 &&
-           st.st_dev != parent.st_dev;
-}
-
 // Escape a value for a -o option list: ',' separates options, '\\' escapes
 static std::string optEscape(const std::string& v)
 {
@@ -117,6 +116,145 @@ static std::string optEscape(const std::string& v)
         s += c;
     }
     return s;
+}
+
+// Create a directory (mode 0755 on POSIX)
+static int makeDir(const std::string& path)
+{
+#ifdef _WIN32
+    return _mkdir(path.c_str());
+#else
+    return mkdir(path.c_str(), 0755);
+#endif
+}
+
+static bool isSeparator(char c)
+{
+#ifdef _WIN32
+    return c == '/' || c == '\\';
+#else
+    return c == '/';
+#endif
+}
+
+static bool mkdirs(const std::string& path)
+{
+    std::string cur;
+    for (size_t i = 0; i < path.size(); i++)
+    {
+        cur += path[i];
+        if ((isSeparator(path[i]) && i > 0) || i == path.size() - 1)
+        {
+#ifdef _WIN32
+            if (cur.size() <= 3 && cur.size() >= 2 && cur[1] == ':') continue;   // "C:" or "C:\"
+#endif
+            if (makeDir(cur) != 0 && errno != EEXIST) return false;
+        }
+    }
+    return true;
+}
+
+// Directory name for a volume: no '/', no leading dot (GIO hides dot paths);
+// on Windows none of the characters it does not allow in a file name either
+static std::string sanitizeName(const std::string& name, const std::string& fallback)
+{
+    std::string s;
+    for (char c : name)
+    {
+        bool bad = c == '/' || (unsigned char)c < 0x20;
+#ifdef _WIN32
+        bad = bad || strchr("<>:\"\\|?*", c) != nullptr;
+#endif
+        s += bad ? '_' : c;
+    }
+    while (!s.empty() && (s[0] == '.' || s[0] == ' ')) s.erase(0, 1);
+    while (!s.empty() && s.back() == ' ') s.pop_back();
+#ifdef _WIN32
+    while (!s.empty() && (s.back() == ' ' || s.back() == '.')) s.pop_back();
+#endif
+    return s.empty() ? fallback : s;
+}
+
+#ifdef _WIN32
+static std::wstring toWide(const std::string& s)
+{
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
+    if (n > 1) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
+    return w;
+}
+
+static std::string toUtf8(const std::wstring& w)
+{
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string s(n > 0 ? n - 1 : 0, '\0');
+    if (n > 1) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], n, nullptr, nullptr);
+    return s;
+}
+
+static bool isDriveLetter(const std::string& p)
+{
+    return p.size() == 2 && isalpha((unsigned char)p[0]) && p[1] == ':';
+}
+
+// A mountpoint as WinFsp wants it: a drive letter "W:" or an absolute path
+// (of a directory that does not exist yet: WinFsp creates it).  "*" picks the
+// last free drive letter, like WinFsp itself, but here we know which one.
+static std::string windowsMountpoint(const std::string& mp)
+{
+    if (mp == "*")
+    {
+        DWORD used = GetLogicalDrives();
+        for (char c = 'Z'; c >= 'D'; c--)
+            if (!(used & (1u << (c - 'A')))) return std::string(1, c) + ":";
+        return "";
+    }
+    if (isDriveLetter(mp)) return std::string(1, (char)toupper((unsigned char)mp[0])) + ":";
+    std::wstring w = toWide(mp);
+    wchar_t full[MAX_PATH];
+    DWORD n = GetFullPathNameW(w.c_str(), MAX_PATH, full, nullptr);
+    if (n == 0 || n >= MAX_PATH) return mp;
+    std::string s = toUtf8(full);
+    while (s.size() > 3 && (s.back() == '\\' || s.back() == '/')) s.pop_back();
+    return s;
+}
+
+static bool pathExists(const std::string& path)
+{
+    std::wstring w = toWide(isDriveLetter(path) ? path + "\\" : path);
+    return GetFileAttributesW(w.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// Name of the event that `waffle-fuse --unmount <mountpoint>` signals
+static std::wstring unmountEventName(const std::string& mountpoint)
+{
+    std::wstring name = L"Local\\waffle-fuse-unmount:";
+    for (wchar_t c : toWide(windowsMountpoint(mountpoint)))
+        name += c == L'\\' ? L'/' : (wchar_t)towupper(c);
+    return name;
+}
+
+// Pick <base>\<name>, or <name> (2), (3)...: a path that does not exist, as
+// WinFsp creates the directory of the mount (and removes it on unmount)
+static std::string makeAutomountDir(const std::string& base, const std::string& name, bool& created)
+{
+    created = false;
+    if (!mkdirs(base)) return "";
+    std::string sep = isSeparator(base.back()) ? "" : "\\";
+    for (int n = 1; n < 100; n++)
+    {
+        std::string path = base + sep + name + (n > 1 ? " (" + std::to_string(n) + ")" : "");
+        if (!pathExists(path)) return windowsMountpoint(path);
+    }
+    return "";
+}
+#else
+// Is 'path' a mountpoint (on another device than its parent directory)?
+static bool isMountpoint(const std::string& path)
+{
+    struct stat st, parent;
+    return stat(path.c_str(), &st) == 0 && stat((path + "/..").c_str(), &parent) == 0 &&
+           st.st_dev != parent.st_dev;
 }
 
 // Run a command without a shell; returns its exit status (-1 on failure).
@@ -160,30 +298,6 @@ static bool isDirEmpty(const std::string& path)
     return empty;
 }
 
-static bool mkdirs(const std::string& path)
-{
-    std::string cur;
-    for (size_t i = 0; i < path.size(); i++)
-    {
-        cur += path[i];
-        if ((path[i] == '/' && i > 0) || i == path.size() - 1)
-        {
-            if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) return false;
-        }
-    }
-    return true;
-}
-
-// Directory name for a volume: no '/', no leading dot (GIO hides dot paths)
-static std::string sanitizeName(const std::string& name, const std::string& fallback)
-{
-    std::string s;
-    for (char c : name) s += (c == '/' || (unsigned char)c < 0x20) ? '_' : c;
-    while (!s.empty() && (s[0] == '.' || s[0] == ' ')) s.erase(0, 1);
-    while (!s.empty() && s.back() == ' ') s.pop_back();
-    return s.empty() ? fallback : s;
-}
-
 // Pick (and create) <base>/<name>, or <name> (2), (3)...  Stale FUSE mounts
 // left behind by a crash are cleaned up on the way.
 static std::string makeAutomountDir(const std::string& base, const std::string& name, bool& created)
@@ -221,6 +335,8 @@ static std::string makeAutomountDir(const std::string& base, const std::string& 
     return "";
 }
 
+#endif
+
 static void usage(const char* progname)
 {
     std::cerr <<
@@ -230,6 +346,9 @@ static void usage(const char* progname)
               "       " << progname << " --probe <serial-port>\n"
               "       " << progname << " --wait-disk <serial-port> [timeout-s]\n"
               "       " << progname << " --wait-removal <serial-port> [timeout-s]\n"
+#ifdef _WIN32
+              "       " << progname << " --unmount <mountpoint>\n"
+#endif
               "       " << progname << " --format <serial-port> <amiga|ofs|ffs|amiga-intl|dos> <dd|hd> [label] [--quick] [--yes]\n"
               "       " << progname << " --format-image <file> <amiga|ofs|ffs|amiga-intl|dos> <dd|hd> [label]\n"
               "       " << progname << " --write-image <serial-port> <file.adf|img> [--full] [--yes]\n"
@@ -253,12 +372,25 @@ static void usage(const char* progname)
               "  trash              let file managers create a .Trash-<uid> folder on the disk\n"
               "  novolumeinfo       no virtual .xdg-volume-info (desktop name and icon)\n"
               "  debug_hw           hardware/serial debug messages\n"
+#ifdef _WIN32
+              "  -f                 accepted for compatibility: waffle-fuse always stays in the foreground\n"
+              "\n"
+              "Windows: needs WinFsp (https://winfsp.dev).  The mountpoint is a drive letter (W:),\n"
+              "* for a free one, or a directory that does not exist yet (WinFsp creates it).\n"
+              "  --unmount <mountpoint>   unmount a disk mounted by waffle-fuse (or press Ctrl+C)\n"
+              "\n"
+              "Examples:\n"
+              "  " << progname << " COM3 W:\n"
+              "  " << progname << " COM3 --automount %USERPROFILE%\\Floppy\n"
+              "  " << progname << " --image workbench.adf *\n";
+#else
               "  -f                 stay in the foreground\n"
               "\n"
               "Examples:\n"
               "  " << progname << " /dev/ttyUSB0 /mnt/floppy\n"
               "  " << progname << " /dev/ttyUSB0 --automount ~/Floppy -f\n"
               "  " << progname << " --image workbench.adf /tmp/wb\n";
+#endif
 }
 
 // ── Mount state shared with the disk event callback ───────────────────────────
@@ -288,17 +420,21 @@ static void onDiskEvent(WaffleDisk::Event e)
         break;
     }
     // Leave the FUSE loop: set the exit flag, then generate one request so the
-    // loop (blocked reading /dev/fuse) wakes up and notices it.
+    // loop (blocked reading /dev/fuse) wakes up and notices it.  WinFsp's loop
+    // waits for an event that fuse_exit() sets.
     if (g_fuse) fuse_exit(g_fuse);
+#ifndef _WIN32
     std::string mp = g_mountpoint;
     std::thread([mp] { struct stat st; stat(mp.c_str(), &st); }).detach();
+#endif
 }
 
 // ── Desktop layer in front of the filesystem ─────────────────────────────────
 // * a virtual, read-only /.xdg-volume-info gives file managers the volume name
 //   and an Amiga/DOS icon; it is never written to the disk;
-// * .Trash / .Trash-<uid> folders are refused, so file managers offer to delete
-//   permanently instead of filling an 880K floppy with a trash can;
+// * .Trash / .Trash-<uid> folders (on Windows $RECYCLE.BIN) are refused, so
+//   file managers offer to delete permanently instead of filling an 880K
+//   floppy with a trash can;
 // * on macOS, so are the Finder and Spotlight folders (the AppleDouble ._ files
 //   and .DS_Store are turned off with the noappledouble mount option).
 
@@ -334,17 +470,22 @@ static bool isTrash(const char* path)
         if (strcmp(base, name) == 0) return true;
     if (!g_allowTrash && strcmp(base, ".Trashes") == 0) return true;
 #endif
+#ifdef _WIN32
+    // The Recycle Bin and System Restore, on a floppy
+    if (!g_allowTrash && strcasecmp(base, "$RECYCLE.BIN") == 0) return true;
+    if (strcasecmp(base, "System Volume Information") == 0) return true;
+#endif
     return !g_allowTrash && (strcmp(base, ".Trash") == 0 || strncmp(base, ".Trash-", 7) == 0);
 }
 
-static int w_getattr(const char* path, struct stat* st, struct fuse_file_info* fi)
+static int w_getattr(const char* path, fuse_stat_t* st, struct fuse_file_info* fi)
 {
     if (const std::string* vf = virtualFile(path))
     {
         memset(st, 0, sizeof(*st));
         st->st_mode  = S_IFREG | 0444;
         st->st_nlink = 1;
-        st->st_size  = (off_t)vf->size();
+        st->st_size  = (fuse_off_t)vf->size();
         st->st_uid   = getuid();
         st->st_gid   = getgid();
         return 0;
@@ -364,12 +505,12 @@ static int w_open(const char* path, struct fuse_file_info* fi)
     return g_fsOps.open(path, fi);
 }
 
-static int w_read(const char* path, char* buf, size_t size, off_t off, struct fuse_file_info* fi)
+static int w_read(const char* path, char* buf, size_t size, fuse_off_t off, struct fuse_file_info* fi)
 {
     if (fi && fi->fh == VIRTUAL_FH)
     {
         const std::string* vf = virtualFile(path);
-        if (!vf || off >= (off_t)vf->size()) return 0;
+        if (!vf || off >= (fuse_off_t)vf->size()) return 0;
         size_t n = std::min(size, vf->size() - (size_t)off);
         memcpy(buf, vf->data() + off, n);
         return (int)n;
@@ -389,13 +530,13 @@ static int w_release(const char* path, struct fuse_file_info* fi)
     return g_fsOps.release ? g_fsOps.release(path, fi) : 0;
 }
 
-static int w_mkdir(const char* path, mode_t mode)
+static int w_mkdir(const char* path, fuse_mode_t mode)
 {
     if (isTrash(path) || isVolumeInfo(path)) return -EPERM;
     return g_fsOps.mkdir(path, mode);
 }
 
-static int w_create(const char* path, mode_t mode, struct fuse_file_info* fi)
+static int w_create(const char* path, fuse_mode_t mode, struct fuse_file_info* fi)
 {
     if (isTrash(path) || isVolumeInfo(path)) return -EPERM;
     return g_fsOps.create(path, mode, fi);
@@ -415,11 +556,11 @@ static int w_rename(const char* from, const char* to, unsigned int flags)
 struct DirEntry
 {
     std::string name;
-    struct stat st;
+    fuse_stat_t st;
     bool        hasStat;
 };
 
-static int collectEntry(void* buf, const char* name, const struct stat* st, off_t,
+static int collectEntry(void* buf, const char* name, const fuse_stat_t* st, fuse_off_t,
                         enum fuse_fill_dir_flags)
 {
     auto* entries = static_cast<std::vector<DirEntry>*>(buf);
@@ -429,7 +570,7 @@ static int collectEntry(void* buf, const char* name, const struct stat* st, off_
     return 0;
 }
 
-static int w_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t off,
+static int w_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fuse_off_t off,
                      struct fuse_file_info* fi, enum fuse_readdir_flags flags)
 {
     std::vector<DirEntry> entries;
@@ -438,12 +579,25 @@ static int w_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t 
     for (size_t i = off > 0 ? (size_t)off : 0; i < entries.size(); i++)
     {
         const DirEntry& e = entries[i];
-        if (filler(buf, e.name.c_str(), e.hasStat ? &e.st : nullptr, (off_t)(i + 1),
+        if (filler(buf, e.name.c_str(), e.hasStat ? &e.st : nullptr, (fuse_off_t)(i + 1),
                    (fuse_fill_dir_flags)0))
             break;                      // buffer full: the reader asks again from here
     }
     return 0;
 }
+
+#ifdef _WIN32
+static bool g_readOnlyVolume = false;
+
+static void* w_init(struct fuse_conn_info* conn, struct fuse_config* cfg)
+{
+    // AmigaDOS and FAT names are case-insensitive, as Windows expects; a
+    // read-only volume is shown as such by Explorer
+    conn->want |= FSP_FUSE_CAP_CASE_INSENSITIVE;
+    if (g_readOnlyVolume) conn->want |= FSP_FUSE_CAP_READ_ONLY;
+    return g_fsOps.init ? g_fsOps.init(conn, cfg) : fuse_get_context()->private_data;
+}
+#endif
 
 static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
 {
@@ -458,17 +612,112 @@ static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
     ops.create  = w_create;
     ops.rename  = w_rename;
     ops.readdir = w_readdir;
+#ifdef _WIN32
+    ops.init    = w_init;
+#endif
     return ops;
 }
+
+#ifdef _WIN32
+// WinFsp has no fuse_parse_cmdline(): the same for the options waffle-fuse uses
+struct fuse_cmdline_opts
+{
+    int   foreground   = 0;
+    int   debug        = 0;
+    int   show_help    = 0;
+    int   show_version = 0;
+    char* mountpoint   = nullptr;
+};
+
+enum { KEY_FOREGROUND, KEY_DEBUG, KEY_SINGLE, KEY_HELP, KEY_VERSION };
+
+static const struct fuse_opt cmdline_opts[] =
+{
+    FUSE_OPT_KEY("-f",        KEY_FOREGROUND),
+    FUSE_OPT_KEY("-d",        KEY_DEBUG),
+    FUSE_OPT_KEY("debug",     KEY_DEBUG),
+    FUSE_OPT_KEY("-s",        KEY_SINGLE),
+    FUSE_OPT_KEY("-h",        KEY_HELP),
+    FUSE_OPT_KEY("--help",    KEY_HELP),
+    FUSE_OPT_KEY("-V",        KEY_VERSION),
+    FUSE_OPT_KEY("--version", KEY_VERSION),
+    FUSE_OPT_END
+};
+
+static int cmdlineProc(void* data, const char* arg, int key, struct fuse_args*)
+{
+    auto* cmd = static_cast<fuse_cmdline_opts*>(data);
+    switch (key)
+    {
+    case KEY_FOREGROUND:
+        cmd->foreground = 1;
+        return 0;
+    case KEY_DEBUG:
+        cmd->foreground = cmd->debug = 1;
+        return 1;                           // for fuse_new() too
+    case KEY_SINGLE:
+        return 0;
+    case KEY_HELP:
+        cmd->show_help = 1;
+        return 0;
+    case KEY_VERSION:
+        cmd->show_version = 1;
+        return 0;
+    case FUSE_OPT_KEY_NONOPT:
+        if (cmd->mountpoint)
+        {
+            std::cerr << "waffle-fuse: unexpected argument " << arg << "\n";
+            return -1;
+        }
+        cmd->mountpoint = strdup(arg);
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+static int fuse_parse_cmdline(struct fuse_args* args, fuse_cmdline_opts* cmd)
+{
+    return fuse_opt_parse(args, cmd, cmdline_opts, cmdlineProc);
+}
+#endif
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[])
 {
+#ifdef SIGPIPE
     // The events on stdout go to a pipe when a tray daemon or app runs us: if
     // it quits while a disk is mounted, a write must not kill the driver
     // (pending changes would never reach the disk)
     signal(SIGPIPE, SIG_IGN);
+#endif
+#ifdef _WIN32
+    // Names are UTF-8 everywhere (the manifest makes it the process code page)
+    SetConsoleOutputCP(CP_UTF8);
+
+    // --unmount <mountpoint>: ask the waffle-fuse serving it to unmount, which
+    // then writes the pending changes to the disk and exits
+    if (argc >= 3 && strcmp(argv[1], "--unmount") == 0)
+    {
+        const std::string mp = windowsMountpoint(argv[2]);
+        HANDLE ev = OpenEventW(EVENT_MODIFY_STATE, FALSE, unmountEventName(mp).c_str());
+        if (!ev)
+        {
+            std::cerr << "waffle-fuse: nothing mounted by waffle-fuse on " << mp << "\n";
+            return EXIT_USAGE;
+        }
+        SetEvent(ev);
+        CloseHandle(ev);
+        for (int i = 0; i < 200 && pathExists(mp); i++) Sleep(50);    // up to 10 s
+        if (pathExists(mp))
+        {
+            std::cerr << "waffle-fuse: " << mp << " is still mounted (files open?)\n";
+            return EXIT_USAGE;
+        }
+        return EXIT_OK;
+    }
+#endif
 
     if (argc >= 3 && strcmp(argv[1], "--probe") == 0)
     {
@@ -943,6 +1192,13 @@ int main(int argc, char* argv[])
         return EXIT_USAGE;
     }
 
+#ifdef _WIN32
+    if (!winfsp_load())
+    {
+        emit("error=winfsp");
+        return EXIT_USAGE;
+    }
+#endif
     struct fuse_args args = FUSE_ARGS_INIT((int)fuse_argv.size(), fuse_argv.data());
     WaffleOptions opts{};
     opts.flushdelay = 1000;
@@ -958,7 +1214,11 @@ int main(int argc, char* argv[])
     }
     if (cmd.show_version)
     {
+#ifdef _WIN32
+        std::cout << "WinFsp FUSE " << fuse_pkgversion() << "\n";
+#else
         fuse_lowlevel_version();
+#endif
         return EXIT_OK;
     }
     if (!cmd.mountpoint && automountBase.empty())
@@ -1112,11 +1372,29 @@ int main(int argc, char* argv[])
     else
     {
         mountpoint = cmd.mountpoint;
+#ifdef _WIN32
+        mountpoint = windowsMountpoint(mountpoint);
+        if (mountpoint.empty())
+        {
+            std::cerr << "waffle-fuse: no free drive letter\n";
+            emit("error=mount");
+            freeFs();
+            return EXIT_USAGE;
+        }
+#endif
     }
     g_mountpoint = mountpoint;
 
+#ifdef _WIN32
+    // Explorer shows the volume label and "FUSE-AFFS" / "FUSE-FAT" as the file
+    // system; every file belongs to the user who mounted the disk
+    std::string fsopts = "-ovolname=" + optEscape(displayName) + ",FileSystemName=" +
+                         (useAFFS ? "AFFS" : "FAT") + ",uid=-1,gid=-1";
+    g_readOnlyVolume = readOnly;
+#else
     // Name shown by `mount`/`df`; "ro" goes to the kernel when the medium is protected
     std::string fsopts = "-ofsname=" + optEscape("waffle:" + source) + ",subtype=" + (useAFFS ? "affs" : "vfat");
+#endif
 #ifdef __APPLE__
     // FUSE-T: Finder shows the volume name; no ._ AppleDouble files, .DS_Store
     // or extended attributes on an 880K floppy.  FUSE-T serves the mount over
@@ -1127,9 +1405,15 @@ int main(int argc, char* argv[])
     fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr,noforget,nfc";
 #endif
     fuse_opt_add_arg(&args, fsopts.c_str());
+#ifndef _WIN32
     if (readOnly) fuse_opt_add_arg(&args, "-oro");
+#endif
 
     g_allowTrash = opts.trash;
+#ifdef _WIN32
+    // .xdg-volume-info is for Linux desktops: Explorer would show it as a file
+    opts.novolinfo = 1;
+#endif
     if (!opts.novolinfo)
     {
         g_volumeIcon = useAFFS ? kAmigaVolumeIcon : kDosVolumeIcon;
@@ -1157,6 +1441,34 @@ int main(int argc, char* argv[])
     }
     struct fuse_session* se = fuse_get_session(g_fuse);
     fuse_set_signal_handlers(se);
+
+#ifdef _WIN32
+    // WinFsp mounts when the loop below starts: announce the mount once it is
+    // really there.  Then wait for `waffle-fuse --unmount` (Ctrl+C is handled
+    // by WinFsp itself).
+    std::atomic<bool> loopDone{false}, mounted{false};
+    HANDLE unmountEvent = CreateEventW(nullptr, TRUE, FALSE, unmountEventName(mountpoint).c_str());
+    if (unmountEvent && GetLastError() == ERROR_ALREADY_EXISTS) ResetEvent(unmountEvent);
+    std::thread watcher([&]
+    {
+        for (int i = 0; i < 300 && !loopDone && !mounted; i++)     // up to 15 s
+        {
+            if (pathExists(mountpoint)) mounted = true;
+            else Sleep(50);
+        }
+        if (loopDone) return;
+        if (!mounted)
+        {
+            std::cerr << "waffle-fuse: the mount did not appear on " << mountpoint << "\n";
+            fuse_exit(g_fuse);
+            return;
+        }
+        std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
+        emit("event=mounted mountpoint=" + mountpoint);
+        if (unmountEvent) WaitForSingleObject(unmountEvent, INFINITE);
+        if (!loopDone) fuse_exit(g_fuse);
+    });
+#endif
 
 #ifdef __APPLE__
     // FUSE-T serves the mount over NFS, which completes only once the loop
@@ -1230,7 +1542,7 @@ int main(int argc, char* argv[])
             raise(SIGTERM);                            // leave the FUSE loop
         }
     }).detach();
-#else
+#elif !defined(_WIN32)
     std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
     emit("event=mounted mountpoint=" + mountpoint);
     fuse_daemonize(cmd.foreground);
@@ -1241,6 +1553,19 @@ int main(int argc, char* argv[])
 
     // The filesystem code is not thread-safe: use the single-threaded loop
     fuse_loop(g_fuse);
+
+#ifdef _WIN32
+    loopDone = true;
+    if (unmountEvent) SetEvent(unmountEvent);
+    watcher.join();
+    if (unmountEvent) CloseHandle(unmountEvent);
+    if (!mounted)
+    {
+        std::cerr << "waffle-fuse: cannot mount on " << mountpoint << "\n";
+        emit("error=mount");
+        g_exitCode = EXIT_USAGE;
+    }
+#endif
 
     // ── Teardown: unmount, write pending changes, release the drive ───────────
     fuse_remove_signal_handlers(se);

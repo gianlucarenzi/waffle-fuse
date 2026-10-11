@@ -56,7 +56,8 @@ const long long StreamMax = std::numeric_limits<std::streamsize>::max();
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <Windows.h>
+#include <windows.h>
+#include <filesystem>
 #pragma comment(lib,"Ws2_32.lib")
 #else
 #include <algorithm>
@@ -1572,7 +1573,7 @@ ADFResult ADFWriter::sectorFileToDisk(const std::wstring& inputFile, const bool 
 
     // Attempt to open the file
 #ifdef _WIN32   
-    std::ifstream hFile(inputFile, std::ifstream::in | std::ifstream::binary);
+    std::ifstream hFile(std::filesystem::path(inputFile), std::ifstream::in | std::ifstream::binary);
 #else
     std::string inputFileA;
     quickw2a(inputFile, inputFileA);
@@ -1775,7 +1776,7 @@ ADFResult ADFWriter::diskToIBMST(const std::wstring& outputFile, const bool inHD
 
     // Attempt ot open the file
 #ifdef _WIN32   
-    std::ofstream hFile = std::ofstream(outputFile, std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+    std::ofstream hFile = std::ofstream(std::filesystem::path(outputFile), std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
 #else
     std::string outputFileA;
     quickw2a(outputFile, outputFileA);
@@ -1950,7 +1951,7 @@ ADFResult ADFWriter::ADFToDisk(const std::wstring& inputFile, bool mediaIsHD, bo
 
     // Attempt to open the file
 #ifdef _WIN32   
-    std::ifstream hADFFile(inputFile, std::ifstream::in | std::ifstream::binary);
+    std::ifstream hADFFile(std::filesystem::path(inputFile), std::ifstream::in | std::ifstream::binary);
 #else
     std::string inputFileA;
     quickw2a(inputFile,inputFileA);
@@ -2289,7 +2290,7 @@ ADFResult ADFWriter::DiskToSCP(const std::wstring& outputFile, bool isHDMode, co
 
     // Attempt ot open the file
 #ifdef _WIN32       
-    std::fstream hADFFile = std::fstream(outputFile, std::ofstream::out | std::ofstream::in | std::ofstream::binary | std::ofstream::trunc);
+    std::fstream hADFFile = std::fstream(std::filesystem::path(outputFile), std::ofstream::out | std::ofstream::in | std::ofstream::binary | std::ofstream::trunc);
 #else
     std::string outputFileA;
     quickw2a(outputFile,outputFileA);
@@ -2567,7 +2568,7 @@ ADFResult ADFWriter::SCPToDisk(const std::wstring& inputFile, bool extraErases, 
 
     // Attempt ot open the file
 #ifdef _WIN32       
-    std::fstream hADFFile = std::fstream(inputFile, std::ofstream::in | std::ofstream::binary);
+    std::fstream hADFFile = std::fstream(std::filesystem::path(inputFile), std::ofstream::in | std::ofstream::binary);
 #else
     std::string inputFileA;
     quickw2a(inputFile, inputFileA);
@@ -2743,7 +2744,7 @@ ADFResult ADFWriter::DiskToADF(const std::wstring& outputFile, const bool inHDMo
 
     // Attempt ot open the file
 #ifdef _WIN32   
-    std::ofstream hADFFile = std::ofstream(outputFile, std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+    std::ofstream hADFFile = std::ofstream(std::filesystem::path(outputFile), std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
 #else
     std::string outputFileA;
     quickw2a(outputFile,outputFileA);

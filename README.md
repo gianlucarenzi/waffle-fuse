@@ -30,6 +30,9 @@ On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
 [FUSE-T](https://www.fuse-t.org), with the **Waffle DiskFlashback** menu bar app (automatic
 mounting, like the Linux tray daemon) or a one-click launcher: see [macOS](#macos).
 
+On **Windows** (10 1903 or later) the command line driver works with
+[WinFsp](https://winfsp.dev): disks and images appear as drive letters, see [Windows](#windows).
+
 ## Dependencies
 
 The graphical installer checks them and shows the correct command for your distribution.
@@ -209,6 +212,63 @@ Install FUSE-T and the command line tools (`xcode-select --install`), then `make
 Makefile finds FUSE-T's libfuse3 in `/usr/local`). The app: `brew install librsvg`, then
 `macos/build-app.sh <version>` (needs the universal `waffle-fuse` binary, see the workflow)
 and `macos/make-dmg.sh "dist/Waffle DiskFlashback.app" <file.dmg>`.
+
+### Windows
+
+Requirements: Windows 10 version 1903 or later (x86_64) and [WinFsp](https://winfsp.dev),
+free and without reboot (`winget install WinFsp.WinFsp`).
+
+The download is `waffle-fuse-<version>-windows-x86_64.zip`, attached to the releases from
+the next version on; until then the latest build is the `waffle-fuse-packages-windows`
+artifact of the *Build waffle-fuse* workflow in the
+[Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab. It holds
+`waffle-fuse.exe`, which needs nothing but WinFsp. There is no tray app yet: disks are
+mounted from the command line.
+
+```bat
+rem The drive is a COM port: Device Manager -> Ports (COM & LPT)
+waffle-fuse COM3 W:
+rem the first free drive letter (the one used is printed)
+waffle-fuse COM3 *
+rem in %USERPROFILE%\Floppy\<volume name>
+waffle-fuse COM3 --automount %USERPROFILE%\Floppy
+rem an image as a virtual disk
+waffle-fuse --image workbench.adf W:
+rem unmount, from another window (or Ctrl+C in the waffle-fuse window)
+waffle-fuse --unmount W:
+```
+
+#### How it behaves on Windows
+
+* waffle-fuse always stays in the foreground (`-f` is accepted and ignored); unmount with
+  Ctrl+C in its window or `waffle-fuse --unmount <mountpoint>`.
+* The mountpoint is a drive letter, `*` for the first free one (from Z: down), or a
+  directory that **does not exist yet**: WinFsp creates it and removes it on unmount.
+* Explorer shows the volume name as the drive label and `FUSE-AFFS` / `FUSE-FAT` as the
+  file system; names are case-insensitive, as on the Amiga and in DOS.
+* The Recycle Bin (`$RECYCLE.BIN`) is refused, so Explorer offers to delete
+  permanently; there is no `.xdg-volume-info`.
+* Amiga names may contain characters Windows does not allow (`* ? " < > | \`): WinFsp
+  shows them as look-alike Unicode characters.
+
+#### Building
+
+With [MSYS2](https://www.msys2.org) (UCRT64 shell) and WinFsp installed with its developer
+files (`msiexec /i winfsp-<version>.msi INSTALLLEVEL=1000`, or *Developer* ticked in the
+installer):
+
+```bash
+pacman -S --needed make mingw-w64-ucrt-x86_64-gcc
+make                      # waffle-fuse.exe; WINFSP_INC=... if WinFsp is elsewhere
+tests/run-tests.sh        # filesystem tests (needs dosfstools)
+```
+
+From Linux, with a MinGW-w64 cross compiler and the WinFsp headers (the `inc` folder of
+the WinFsp sources):
+
+```bash
+make CXX=x86_64-w64-mingw32-g++-posix WINFSP_INC=/path/to/winfsp/inc
+```
 
 ### Installation from source
 

@@ -9,9 +9,9 @@
 #   3. with independent tools: xdftool/xdfscan (amitools) for AmigaDOS,
 #      pyfatfs + fsck.fat for FAT.
 #
-# Requirements: fusermount3 (Linux) or FUSE-T (macOS, with GNU coreutils first
-# in PATH), mkfs.fat, fsck.fat; amitools (xdftool, xdfscan) and pyfatfs for the
-# independent checks.  Point XDFTOOL, XDFSCAN and TEST_PYTHON at them if they
+# Requirements: fusermount3 (Linux), FUSE-T (macOS, with GNU coreutils first
+# in PATH) or WinFsp (Windows, run from an MSYS2 shell), mkfs.fat, fsck.fat;
+# amitools (xdftool, xdfscan) and pyfatfs for the independent checks.  Point XDFTOOL, XDFSCAN and TEST_PYTHON at them if they
 # are not in PATH (e.g. inside a virtualenv).
 #
 # Debugging: ONLY="FAT 720K" runs one suite, WAFFLE_DEBUG=1 mounts with the
@@ -21,13 +21,20 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$HERE/../waffle-fuse"
+WINDOWS=
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WINDOWS=1; BIN="$BIN.exe" ;; esac
 XDFTOOL="${XDFTOOL:-xdftool}"
 XDFSCAN="${XDFSCAN:-xdfscan}"
 TEST_PYTHON="${TEST_PYTHON:-python3}"
 MKFS_FAT="$(command -v mkfs.fat || echo /sbin/mkfs.fat)"
 FSCK_FAT="$(command -v fsck.fat || echo /sbin/fsck.fat)"
 
-if [ "$(uname -s)" = Darwin ]; then
+if [ -n "$WINDOWS" ]; then
+    # WinFsp creates the directory of a mount and removes it on unmount
+    is_mounted() { [ -d "$1" ]; }
+    fuse_umount() { "$BIN" --unmount "$1"; }
+    tree_diff() { diff -r "$1" "$2"; }
+elif [ "$(uname -s)" = Darwin ]; then
     # A mountpoint is on another device than its parent directory.  The macOS
     # stat: GNU stat (coreutils first in PATH) reads -f %d as free inodes
     is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1" 2>/dev/null)" != "$(/usr/bin/stat -f %d "$1/.." 2>/dev/null)" ]; }
@@ -42,7 +49,7 @@ fi
 
 WORK="$(mktemp -d /tmp/waffle-test.XXXXXX)"
 MNT="$WORK/mnt"
-mkdir -p "$MNT"
+[ -n "$WINDOWS" ] || mkdir -p "$MNT"
 PASS=0
 FAIL=0
 PID=
@@ -155,7 +162,12 @@ run_suite() {
         fi
     fi
     # Disk full: the copy must fail cleanly and leave a consistent filesystem
-    local avail; avail=$(df --output=avail -B1 "$MNT" | tail -1)
+    local avail
+    if [ -n "$WINDOWS" ]; then
+        avail=$(stat -c %s "$img")      # df sees the volume holding the mount directory
+    else
+        avail=$(df --output=avail -B1 "$MNT" | tail -1)
+    fi
     mkfile "$WORK/toobig" $((avail + 20000))
     if cp "$WORK/toobig" "$MNT/toobig" 2>/dev/null; then
         bad "disk full reported (df avail $avail bytes, copied $(stat -c %s "$MNT/toobig" 2>/dev/null) of $((avail + 20000)))"
@@ -241,7 +253,9 @@ umount_img
 
 # ── Background mode (no -f, as the desktop launchers use it) ─────────────────
 echo "== background mode"
-if "$BIN" --image "$WORK/fat-720.img" --automount "$WORK/bg" >"$WORK/bg.log" 2>&1; then
+if [ -n "$WINDOWS" ]; then
+    echo "  skip (on Windows waffle-fuse always stays in the foreground)"
+elif "$BIN" --image "$WORK/fat-720.img" --automount "$WORK/bg" >"$WORK/bg.log" 2>&1; then
     BGMNT="$(sed -n 's/^WAFFLE event=mounted mountpoint=//p' "$WORK/bg.log")"
     if [ -n "$BGMNT" ] && is_mounted "$BGMNT" && ls "$BGMNT" >/dev/null; then
         ok "mounted and readable after going to the background"
@@ -264,11 +278,18 @@ if is_mounted "$WORK/auto/WAFFLE"; then
     ok "mounted on <dir>/<volume label>"
     # On macOS the event follows the mount by up to 50 ms (the driver waits to see it)
     for _ in $(seq 50); do grep -q "^WAFFLE event=mounted" "$WORK/auto.log" && break; sleep 0.1; done
-    grep -q "^WAFFLE event=mounted mountpoint=$WORK/auto/WAFFLE" "$WORK/auto.log" && ok "mounted event" || bad "mounted event"
-    grep -qx "Name=WAFFLE" "$WORK/auto/WAFFLE/.xdg-volume-info" && grep -qx "Icon=waffle-dos-floppy" "$WORK/auto/WAFFLE/.xdg-volume-info" \
-        && grep -qx "IconFile=.waffle-icon.svg" "$WORK/auto/WAFFLE/.xdg-volume-info" \
-        && ok "virtual .xdg-volume-info (name and icon)" || bad "virtual .xdg-volume-info"
-    grep -q "<svg" "$WORK/auto/WAFFLE/.waffle-icon.svg" && ok "virtual volume icon" || bad "virtual volume icon"
+    expected="$WORK/auto/WAFFLE"
+    [ -n "$WINDOWS" ] && expected="$(cygpath -w "$expected")"
+    grep -qF "WAFFLE event=mounted mountpoint=$expected" "$WORK/auto.log" && ok "mounted event" || bad "mounted event"
+    if [ -n "$WINDOWS" ]; then
+        [ ! -e "$WORK/auto/WAFFLE/.xdg-volume-info" ] && ok "no .xdg-volume-info on Windows" || bad "no .xdg-volume-info on Windows"
+        if mkdir "$WORK/auto/WAFFLE/\$RECYCLE.BIN" 2>/dev/null; then bad "Recycle Bin refused"; else ok "Recycle Bin refused"; fi
+    else
+        grep -qx "Name=WAFFLE" "$WORK/auto/WAFFLE/.xdg-volume-info" && grep -qx "Icon=waffle-dos-floppy" "$WORK/auto/WAFFLE/.xdg-volume-info" \
+            && grep -qx "IconFile=.waffle-icon.svg" "$WORK/auto/WAFFLE/.xdg-volume-info" \
+            && ok "virtual .xdg-volume-info (name and icon)" || bad "virtual .xdg-volume-info"
+        grep -q "<svg" "$WORK/auto/WAFFLE/.waffle-icon.svg" && ok "virtual volume icon" || bad "virtual volume icon"
+    fi
     if mkdir "$WORK/auto/WAFFLE/.Trash-$(id -u)" 2>/dev/null; then bad ".Trash folder refused"; else ok ".Trash folder refused"; fi
     fuse_umount "$WORK/auto/WAFFLE"; wait "$PID"; PID=
     if "$TEST_PYTHON" -c "import pyfatfs" 2>/dev/null; then
