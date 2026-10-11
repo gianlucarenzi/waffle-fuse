@@ -99,6 +99,18 @@ static void emit(const std::string& line)
     std::cout << "WAFFLE " << line << std::endl;
 }
 
+// Escape a value for a -o option list: ',' separates options, '\\' escapes
+static std::string optEscape(const std::string& v)
+{
+    std::string s;
+    for (char c : v)
+    {
+        if (c == ',' || c == '\\') s += '\\';
+        s += c;
+    }
+    return s;
+}
+
 // Run a command without a shell; returns its exit status (-1 on failure).
 static int runCommand(const std::vector<std::string>& argv)
 {
@@ -178,7 +190,11 @@ static std::string makeAutomountDir(const std::string& base, const std::string& 
         {
             if (errno == ENOTCONN)
             {
+#ifdef __APPLE__
+                runCommand({"umount", "-f", path});
+#else
                 runCommand({"fusermount3", "-u", "-z", path});
+#endif
                 if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && isDirEmpty(path)) return path;
                 continue;
             }
@@ -276,7 +292,9 @@ static void onDiskEvent(WaffleDisk::Event e)
 // * a virtual, read-only /.xdg-volume-info gives file managers the volume name
 //   and an Amiga/DOS icon; it is never written to the disk;
 // * .Trash / .Trash-<uid> folders are refused, so file managers offer to delete
-//   permanently instead of filling an 880K floppy with a trash can.
+//   permanently instead of filling an 880K floppy with a trash can;
+// * on macOS, so are the Finder and Spotlight folders (the AppleDouble ._ files
+//   and .DS_Store are turned off with the noappledouble mount option).
 
 static struct fuse_operations g_fsOps;          // the filesystem's own operations
 static bool                   g_allowTrash = false;
@@ -305,6 +323,11 @@ static bool isTrash(const char* path)
 {
     const char* base = strrchr(path, '/');
     base = base ? base + 1 : path;
+#ifdef __APPLE__
+    for (const char* name : {".fseventsd", ".Spotlight-V100", ".TemporaryItems"})
+        if (strcmp(base, name) == 0) return true;
+    if (!g_allowTrash && strcmp(base, ".Trashes") == 0) return true;
+#endif
     return !g_allowTrash && (strcmp(base, ".Trash") == 0 || strncmp(base, ".Trash-", 7) == 0);
 }
 
@@ -1043,7 +1066,12 @@ int main(int argc, char* argv[])
     g_mountpoint = mountpoint;
 
     // Name shown by `mount`/`df`; "ro" goes to the kernel when the medium is protected
-    std::string fsopts = "-ofsname=waffle:" + source + ",subtype=" + (useAFFS ? "affs" : "vfat");
+    std::string fsopts = "-ofsname=" + optEscape("waffle:" + source) + ",subtype=" + (useAFFS ? "affs" : "vfat");
+#ifdef __APPLE__
+    // FUSE-T: Finder shows the volume name; no ._ AppleDouble files, .DS_Store
+    // or extended attributes on an 880K floppy
+    fsopts += ",volname=" + optEscape(displayName) + ",noappledouble,nonamedattr";
+#endif
     fuse_opt_add_arg(&args, fsopts.c_str());
     if (readOnly) fuse_opt_add_arg(&args, "-oro");
 

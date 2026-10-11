@@ -1,20 +1,31 @@
 # waffle-fuse Makefile
 # Builds a standalone FUSE driver for DrawBridge/Waffle floppy reader.
-# No Qt dependency; requires libfuse3-dev.
+# No Qt dependency; requires libfuse3-dev (Linux) or FUSE-T (macOS).
 
-CXX      := g++
+ifeq ($(shell uname -s),Darwin)
+# macOS: FUSE-T (https://www.fuse-t.org) installs libfuse3 under /usr/local
+CXX        := clang++
+FUSE_CFLAGS ?= -I/usr/local/include -I/usr/local/include/fuse3
+FUSE_LIBS   ?= -L/usr/local/lib -Wl,-rpath,/usr/local/lib -lfuse3
+else
+CXX        := g++
+FUSE_CFLAGS ?= $(shell pkg-config --cflags fuse3)
+# Release builds (CI) link libfuse3 statically: its soname changed from
+# libfuse3.so.3 to libfuse3.so.4 in fuse 3.17, so a dynamic link only runs on
+# distributions with the same fuse version as the build machine.
+FUSE_LIBS   ?= $(shell pkg-config --libs fuse3)
+endif
+
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra \
             -D_FILE_OFFSET_BITS=64 \
             -DOUTPUT_TIME_IN_NS \
             -Isrc -Ilib -Ilib/capsapi -Iinc \
-            $(shell pkg-config --cflags fuse3)
+            $(FUSE_CFLAGS)
+# EXTRA_CXXFLAGS / EXTRA_LDFLAGS: e.g. -arch arm64 -mmacosx-version-min=12.0
+# (macOS release builds), -static-libstdc++ -static-libgcc (Linux release builds)
+CXXFLAGS += $(EXTRA_CXXFLAGS)
 
-# Release builds (CI) link libfuse3 statically: its soname changed from
-# libfuse3.so.3 to libfuse3.so.4 in fuse 3.17, so a dynamic link only runs on
-# distributions with the same fuse version as the build machine.
-FUSE_LIBS ?= $(shell pkg-config --libs fuse3)
 LDFLAGS  := $(FUSE_LIBS) -lpthread
-# EXTRA_LDFLAGS: e.g. -static-libstdc++ -static-libgcc (CI release builds)
 LDFLAGS  += $(EXTRA_LDFLAGS)
 
 PREFIX   ?= /usr/local

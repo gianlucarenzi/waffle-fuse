@@ -9,9 +9,10 @@
 #   3. with independent tools: xdftool/xdfscan (amitools) for AmigaDOS,
 #      pyfatfs + fsck.fat for FAT.
 #
-# Requirements: fusermount3, mkfs.fat, fsck.fat; amitools (xdftool, xdfscan)
-# and pyfatfs for the independent checks.  Point XDFTOOL, XDFSCAN and
-# TEST_PYTHON at them if they are not in PATH (e.g. inside a virtualenv).
+# Requirements: fusermount3 (Linux) or FUSE-T (macOS, with GNU coreutils first
+# in PATH), mkfs.fat, fsck.fat; amitools (xdftool, xdfscan) and pyfatfs for the
+# independent checks.  Point XDFTOOL, XDFSCAN and TEST_PYTHON at them if they
+# are not in PATH (e.g. inside a virtualenv).
 
 set -u
 
@@ -23,6 +24,15 @@ TEST_PYTHON="${TEST_PYTHON:-python3}"
 MKFS_FAT="$(command -v mkfs.fat || echo /sbin/mkfs.fat)"
 FSCK_FAT="$(command -v fsck.fat || echo /sbin/fsck.fat)"
 
+if [ "$(uname -s)" = Darwin ]; then
+    # A mountpoint is on another device than its parent directory
+    is_mounted() { [ -d "$1" ] && [ "$(stat -f %d "$1" 2>/dev/null)" != "$(stat -f %d "$1/.." 2>/dev/null)" ]; }
+    fuse_umount() { umount "$1"; }
+else
+    is_mounted() { mountpoint -q "$1"; }
+    fuse_umount() { fusermount3 -u "$1"; }
+fi
+
 WORK="$(mktemp -d /tmp/waffle-test.XXXXXX)"
 MNT="$WORK/mnt"
 mkdir -p "$MNT"
@@ -31,7 +41,7 @@ FAIL=0
 PID=
 
 cleanup() {
-    mountpoint -q "$MNT" 2>/dev/null && fusermount3 -u "$MNT"
+    is_mounted "$MNT" 2>/dev/null && fuse_umount "$MNT"
     [ -n "$PID" ] && wait "$PID" 2>/dev/null
     rm -rf "$WORK"
 }
@@ -46,7 +56,7 @@ mount_img() {
     "$BIN" --image "$img" "$MNT" -f "$@" >"$WORK/fuse.log" 2>&1 &
     PID=$!
     for _ in $(seq 50); do
-        mountpoint -q "$MNT" && return 0
+        is_mounted "$MNT" && return 0
         kill -0 "$PID" 2>/dev/null || break
         sleep 0.1
     done
@@ -55,7 +65,7 @@ mount_img() {
 }
 
 umount_img() {
-    fusermount3 -u "$MNT"
+    fuse_umount "$MNT"
     wait "$PID"
     local rc=$?
     PID=
@@ -201,8 +211,8 @@ umount_img
 echo "== automount"
 "$BIN" --image "$WORK/fat-720.img" --automount "$WORK/auto" -f >"$WORK/auto.log" 2>&1 &
 PID=$!
-for _ in $(seq 50); do mountpoint -q "$WORK/auto/WAFFLE" && break; sleep 0.1; done
-if mountpoint -q "$WORK/auto/WAFFLE"; then
+for _ in $(seq 50); do is_mounted "$WORK/auto/WAFFLE" && break; sleep 0.1; done
+if is_mounted "$WORK/auto/WAFFLE"; then
     ok "mounted on <dir>/<volume label>"
     grep -q "^WAFFLE event=mounted mountpoint=$WORK/auto/WAFFLE" "$WORK/auto.log" && ok "mounted event" || bad "mounted event"
     grep -qx "Name=WAFFLE" "$WORK/auto/WAFFLE/.xdg-volume-info" && grep -qx "Icon=waffle-dos-floppy" "$WORK/auto/WAFFLE/.xdg-volume-info" \
@@ -210,7 +220,7 @@ if mountpoint -q "$WORK/auto/WAFFLE"; then
         && ok "virtual .xdg-volume-info (name and icon)" || bad "virtual .xdg-volume-info"
     grep -q "<svg" "$WORK/auto/WAFFLE/.waffle-icon.svg" && ok "virtual volume icon" || bad "virtual volume icon"
     if mkdir "$WORK/auto/WAFFLE/.Trash-$(id -u)" 2>/dev/null; then bad ".Trash folder refused"; else ok ".Trash folder refused"; fi
-    fusermount3 -u "$WORK/auto/WAFFLE"; wait "$PID"; PID=
+    fuse_umount "$WORK/auto/WAFFLE"; wait "$PID"; PID=
     if "$TEST_PYTHON" -c "import pyfatfs" 2>/dev/null; then
         rm -rf "$WORK/auto-out"
         "$TEST_PYTHON" "$HERE/extract.py" "$WORK/fat-720.img" "$WORK/auto-out" 2>/dev/null
