@@ -401,6 +401,44 @@ static int w_rename(const char* from, const char* to, unsigned int flags)
     return g_fsOps.rename(from, to, flags);
 }
 
+// Directory listings with real offsets: entry i gets offset i + 1, so a reader
+// can resume from any offset with a new handle.  FUSE-T (macOS) serves the
+// mount over NFS, whose READDIR is stateless and resumes from such a cookie;
+// with offset 0 for every entry, libfuse resolves offsets in a per-handle
+// buffer and a resumed listing came back empty after changes.
+struct DirEntry
+{
+    std::string name;
+    struct stat st;
+    bool        hasStat;
+};
+
+static int collectEntry(void* buf, const char* name, const struct stat* st, off_t,
+                        enum fuse_fill_dir_flags)
+{
+    auto* entries = static_cast<std::vector<DirEntry>*>(buf);
+    DirEntry e{name, {}, st != nullptr};
+    if (st) e.st = *st;
+    entries->push_back(std::move(e));
+    return 0;
+}
+
+static int w_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t off,
+                     struct fuse_file_info* fi, enum fuse_readdir_flags flags)
+{
+    std::vector<DirEntry> entries;
+    int err = g_fsOps.readdir(path, &entries, collectEntry, 0, fi, flags);
+    if (err) return err;
+    for (size_t i = off > 0 ? (size_t)off : 0; i < entries.size(); i++)
+    {
+        const DirEntry& e = entries[i];
+        if (filler(buf, e.name.c_str(), e.hasStat ? &e.st : nullptr, (off_t)(i + 1),
+                   (fuse_fill_dir_flags)0))
+            break;                      // buffer full: the reader asks again from here
+    }
+    return 0;
+}
+
 static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
 {
     g_fsOps = fs;
@@ -413,6 +451,7 @@ static struct fuse_operations wrapOperations(const struct fuse_operations& fs)
     ops.mkdir   = w_mkdir;
     ops.create  = w_create;
     ops.rename  = w_rename;
+    ops.readdir = w_readdir;
     return ops;
 }
 
