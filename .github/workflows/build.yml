@@ -273,7 +273,7 @@ jobs:
           esac
           NAME="waffle-fuse-${VERSION}-macos-universal"
           mkdir -p "dist/$NAME"
-          install -m 755 waffle-fuse "dist/$NAME/"
+          install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
           ls -l dist

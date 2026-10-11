@@ -239,6 +239,22 @@ mount_img "$img" -o ro || bad "ro mount"
 if touch "$MNT/x" 2>/dev/null; then bad "write refused on ro mount"; else ok "write refused on ro mount"; fi
 umount_img
 
+# ── Background mode (no -f, as the desktop launchers use it) ─────────────────
+echo "== background mode"
+if "$BIN" --image "$WORK/fat-720.img" --automount "$WORK/bg" >"$WORK/bg.log" 2>&1; then
+    BGMNT="$(sed -n 's/^WAFFLE event=mounted mountpoint=//p' "$WORK/bg.log")"
+    if [ -n "$BGMNT" ] && is_mounted "$BGMNT" && ls "$BGMNT" >/dev/null; then
+        ok "mounted and readable after going to the background"
+        fuse_umount "$BGMNT"
+        for _ in $(seq 100); do [ -d "$BGMNT" ] || break; sleep 0.1; done
+        [ ! -d "$BGMNT" ] && ok "driver exits and removes the mountpoint" || bad "driver exits and removes the mountpoint"
+    else
+        bad "mounted and readable after going to the background"; cat "$WORK/bg.log"
+    fi
+else
+    bad "background mount"; cat "$WORK/bg.log"
+fi
+
 # ── Automount directory naming ───────────────────────────────────────────────
 echo "== automount"
 "$BIN" --image "$WORK/fat-720.img" --automount "$WORK/auto" -f >"$WORK/auto.log" 2>&1 &
