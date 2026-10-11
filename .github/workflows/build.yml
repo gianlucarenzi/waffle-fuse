@@ -231,7 +231,7 @@ jobs:
           echo "$FUSE_T_SHA256  $PKG" | shasum -a 256 -c -
           sudo installer -pkg "$PKG" -target /
           ls -l /usr/local/lib/libfuse3* /usr/local/include/fuse3/fuse.h
-          brew install coreutils dosfstools
+          brew install coreutils dosfstools librsvg
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs "setuptools<81" || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
 
@@ -265,24 +265,67 @@ jobs:
           export TEST_PYTHON="$RUNNER_TEMP/venv/bin/python"
           tests/run-tests.sh
 
-      - name: Package
+      - name: Package version
+        # Release tag vX.Y.Z -> X.Y.Z; manual runs -> 0.0.0.dev<run number>
         run: |
           case "$GITHUB_REF" in
             refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
             *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
           esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the menu bar app
+        run: macos/build-app.sh "$VERSION" dist
+
+      - name: Test the app (open an image, write to it, quit)
+        timeout-minutes: 5
+        run: |
+          APP="$PWD/dist/Waffle DiskFlashback.app"
+          W=$(mktemp -d /tmp/apptest.XXXXXX)
+          MNT="$HOME/Floppy/AppTest"
+          ./waffle-fuse --format-image "$W/t.adf" ffs dd AppTest
+          is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
+          # "Open With": the app mounts the image as a virtual disk
+          open -a "$APP" "$W/t.adf"
+          for _ in $(seq 60); do is_mounted "$MNT" && break; sleep 0.5; done
+          is_mounted "$MNT" || { echo "::error::the app did not mount the image"; exit 1; }
+          pgrep -x WaffleDiskFlashback
+          echo "written through the app" > "$MNT/hello.txt"
+          ls -l "$MNT"
+          # Quit (SIGTERM, like Quit in the menu): unmount cleanly, then exit
+          pkill -TERM -x WaffleDiskFlashback
+          for _ in $(seq 120); do pgrep -x WaffleDiskFlashback >/dev/null || break; sleep 0.5; done
+          if pgrep -x WaffleDiskFlashback >/dev/null; then echo "::error::the app did not quit"; exit 1; fi
+          if is_mounted "$MNT"; then echo "::error::the image is still mounted after quitting"; exit 1; fi
+          # The file reached the image
+          mkdir "$W/check"
+          ./waffle-fuse --image "$W/t.adf" "$W/check" -f & P=$!
+          for _ in $(seq 60); do is_mounted "$W/check" && break; sleep 0.5; done
+          grep -q "written through the app" "$W/check/hello.txt"
+          umount "$W/check"; wait $P
+
+      - name: Package
+        run: |
           NAME="waffle-fuse-${VERSION}-macos-universal"
           mkdir -p "dist/$NAME"
           install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          macos/make-dmg.sh "dist/Waffle DiskFlashback.app" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
+          # The disk image opens and holds the app
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
+          ls -l "$RUNNER_TEMP/dmg"
+          codesign --verify --strict "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app"
+          hdiutil detach "$RUNNER_TEMP/dmg"
           ls -l dist
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: waffle-fuse-packages-macos
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.dmg
           if-no-files-found: error
 
   release:
