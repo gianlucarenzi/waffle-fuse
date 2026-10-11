@@ -1,6 +1,8 @@
 # waffle-fuse
 
 A FUSE userspace driver for the **DrawBridge / Waffle** floppy reader on Arduino.
+(The Arduino firmware and the WaffleCopyPRO application are in
+[ArduinoFloppyDiskReader](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader).)
 Makes the drive behave like an Amiga drive on the Linux desktop:
 
 * **insert a disk** → it mounts automatically in `/media/$USER/<volume name>` (or
@@ -84,7 +86,7 @@ If you test it on another combination, the result is useful to add here.
 ### Packages (any distribution)
 
 Ready-made packages are attached to each release
-(https://github.com/gianlucarenzi/ArduinoFloppyDiskReader/releases, tags `waffle-fuse-v*`).
+(https://github.com/gianlucarenzi/waffle-fuse/releases).
 They are built on Debian 11 and run on **any x86_64 distribution with glibc ≥ 2.31**
 (Debian 11 and later, Ubuntu 20.04 and later, Fedora, openSUSE, Arch...): libfuse3,
 libstdc++ and libgcc are linked into the binary, only glibc comes from the system.
@@ -112,11 +114,11 @@ autostart.
 
 The packages are built and tested (install and removal on Debian 11 and 13, Ubuntu 24.04,
 Fedora, openSUSE Tumbleweed and Arch) by the GitHub workflow
-`.github/workflows/waffle-fuse-build.yml`: run it from the Actions tab for test builds
+`.github/workflows/build.yml`: run it from the Actions tab for test builds
 (version `0.0.0.devN`), or push a tag to publish a release:
 
 ```bash
-git tag waffle-fuse-v1.0.0 && git push origin waffle-fuse-v1.0.0
+git tag v1.0.0 && git push origin v1.0.0
 ```
 
 Packaging files are in `packaging/` (`nfpm.yaml` for [nFPM](https://nfpm.goreleaser.com/),
@@ -125,6 +127,7 @@ install/remove scripts, generic `install.sh`).
 ### Installation from source
 
 ```bash
+git clone https://github.com/gianlucarenzi/waffle-fuse.git
 cd waffle-fuse
 make
 ./scripts/waffle-installer.py        # or double-click waffle-installer.desktop
