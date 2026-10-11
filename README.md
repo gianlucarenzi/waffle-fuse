@@ -218,12 +218,20 @@ and `macos/make-dmg.sh "dist/Waffle DiskFlashback.app" <file.dmg>`.
 Requirements: Windows 10 version 1903 or later (x86_64) and [WinFsp](https://winfsp.dev),
 free and without reboot (`winget install WinFsp.WinFsp`).
 
-The download is `waffle-fuse-<version>-windows-x86_64.zip`, attached to the releases from
-the next version on; until then the latest build is the `waffle-fuse-packages-windows`
-artifact of the *Build waffle-fuse* workflow in the
-[Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab. It holds
-`waffle-fuse.exe`, which needs nothing but WinFsp. There is no tray app yet: disks are
-mounted from the command line.
+Two downloads, attached to the releases from the next version on; until then the latest
+build is the `waffle-fuse-packages-windows` artifact of the *Build waffle-fuse* workflow in
+the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab:
+
+* `waffle-fuse-setup-<version>.exe`: the installer (English and Italian). It puts
+  `waffle-fuse.exe` in `C:\Program Files\waffle-fuse`, adds it to the PATH (optional),
+  **installs WinFsp if it is missing** (bundled), and adds to the Start menu a
+  *waffle-fuse (Command Prompt)* entry and the uninstaller (also in *Installed apps*;
+  WinFsp stays, other programs may use it);
+* `waffle-fuse-<version>-windows-x86_64.zip`: just `waffle-fuse.exe`, which needs nothing
+  but WinFsp.
+
+The files are not signed, so SmartScreen may warn the first time: *More info* →
+*Run anyway*. There is no tray app yet: disks are mounted from the command line.
 
 ```bat
 rem The drive is a COM port: Device Manager -> Ports (COM & LPT)
@@ -268,6 +276,15 @@ the WinFsp sources):
 
 ```bash
 make CXX=x86_64-w64-mingw32-g++-posix WINFSP_INC=/path/to/winfsp/inc
+```
+
+The installer is built with [Inno Setup 6](https://jrsoftware.org/isinfo.php) from
+`windows/waffle-fuse.iss`, on Windows (MSYS2) or on Linux through wine (Inno Setup
+installed in the default wine prefix; `ISCC=` and `WINE=` choose others). The script
+downloads the WinFsp MSI to bundle and checks its SHA-256:
+
+```bash
+windows/make-installer.sh 1.0.0      # -> dist/waffle-fuse-setup-1.0.0.exe
 ```
 
 ### Installation from source

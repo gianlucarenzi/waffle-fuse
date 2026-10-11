@@ -17,3 +17,4 @@ dist/
 generic/
 waffle-fuse.exe
 windows/*.res.o
+windows/build/

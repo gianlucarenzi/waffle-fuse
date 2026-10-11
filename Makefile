@@ -95,8 +95,8 @@ all: $(TARGET)
 $(TARGET): $(OBJS) $(RES_OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-# Windows: manifest (UTF-8 code page, long paths) and version information
-windows/waffle-fuse.res.o: windows/waffle-fuse.rc windows/waffle-fuse.exe.manifest
+# Windows: manifest (UTF-8 code page, long paths), icon and version information
+windows/waffle-fuse.res.o: windows/waffle-fuse.rc windows/waffle-fuse.exe.manifest windows/waffle-fuse.ico
 	$(WINDRES) -O coff -I windows $< -o $@
 
 %.o: %.cpp

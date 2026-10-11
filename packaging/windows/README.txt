@@ -33,6 +33,7 @@ mounted automatically on insert).
    waffle-fuse --help lists all the options (copy a disk to an image file,
    write an image to a disk, format...).
 
-Uninstall: delete this folder.
+Uninstall: Settings -> Apps -> Installed apps -> waffle-fuse if it was
+installed with waffle-fuse-setup.exe; otherwise delete this folder.
 
 Source and documentation: https://github.com/gianlucarenzi/waffle-fuse

@@ -443,11 +443,44 @@ jobs:
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          Get-Item "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+
+      - name: Build the installer
+        run: windows/make-installer.sh "$VERSION"
+
+      - name: Test the installer (silent install, run, uninstall)
+        # WinFsp is already installed here, so its task is skipped; then the
+        # program must be in Program Files and on the system PATH, and gone after
+        # the uninstall
+        shell: pwsh
+        run: |
+          $setup = "dist\waffle-fuse-setup-$env:VERSION.exe"
+          $app = "$env:ProgramFiles\waffle-fuse"
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath', "/LOG=$env:RUNNER_TEMP\setup.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup failed: $($p.ExitCode)" }
+          & "$app\waffle-fuse.exe" --help 2>&1 | Select-Object -First 3
+          $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          if (-not ($path.Split(';') -contains $app)) { throw "not added to the PATH: $path" }
+          $p = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall failed: $($p.ExitCode)" }
+          # The uninstaller finishes in a copy of itself: wait for it
+          function OnPath { [Environment]::GetEnvironmentVariable('Path', 'Machine').Split(';') -contains $app }
+          for ($i = 0; $i -lt 30 -and ((Test-Path "$app\waffle-fuse.exe") -or (OnPath)); $i++) { Start-Sleep 1 }
+          if (Test-Path "$app\waffle-fuse.exe") { throw "still installed after the uninstall" }
+          if (OnPath) { throw "still on the PATH after the uninstall" }
+          Write-Host "installer: OK"
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: waffle-fuse-packages-windows
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.exe
           if-no-files-found: error
 
   release:
