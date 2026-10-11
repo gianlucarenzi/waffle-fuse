@@ -18,3 +18,5 @@ generic/
 waffle-fuse.exe
 windows/*.res.o
 windows/build/
+WaffleDiskFlashback.exe
+windows/tray/*.o

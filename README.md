@@ -223,15 +223,40 @@ build is the `waffle-fuse-packages-windows` artifact of the *Build waffle-fuse* 
 the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab:
 
 * `waffle-fuse-setup-<version>.exe`: the installer (English and Italian). It puts
-  `waffle-fuse.exe` in `C:\Program Files\waffle-fuse`, adds it to the PATH (optional),
-  **installs WinFsp if it is missing** (bundled), and adds to the Start menu a
-  *waffle-fuse (Command Prompt)* entry and the uninstaller (also in *Installed apps*;
-  WinFsp stays, other programs may use it);
-* `waffle-fuse-<version>-windows-x86_64.zip`: just `waffle-fuse.exe`, which needs nothing
-  but WinFsp.
+  **Waffle DiskFlashback** and `waffle-fuse.exe` in `C:\Program Files\waffle-fuse`,
+  **installs WinFsp if it is missing** (bundled), and optionally starts the app at login,
+  opens `.adf` images with it (`.img`/`.ima` get an *Open with* entry) and adds
+  `waffle-fuse` to the PATH. The Start menu gets the app, a *waffle-fuse (Command Prompt)*
+  entry and the uninstaller (also in *Installed apps*; WinFsp stays, other programs may use
+  it). Updating or uninstalling first quits the app, which unmounts its disks;
+* `waffle-fuse-<version>-windows-x86_64.zip`: `WaffleDiskFlashback.exe` and
+  `waffle-fuse.exe` (keep them together), which need nothing but WinFsp.
 
 The files are not signed, so SmartScreen may warn the first time: *More info* →
-*Run anyway*. There is no tray app yet: disks are mounted from the command line.
+*Run anyway*.
+
+#### Waffle DiskFlashback (tray app)
+
+The Windows counterpart of the Linux tray daemon and of the macOS menu bar app. A floppy
+icon appears in the notification area (click **^** if Windows hides it): grey while waiting
+for a disk, orange while reading, blue when a disk is mounted. Insert a disk and it is
+mounted on a free drive letter (from Z: down) and opened in Explorer; take it out and it is
+unmounted. Clicking the icon opens the menu: the same items as the
+[tray menu](#the-tray-menu) on Linux (Open, Eject, Mount again, Copy disk to image file…,
+Write image to disk…), plus **Open image as virtual disk…** and an **Eject** item for each
+open image, **Start at login**, **Show log** and **Quit**, which unmounts cleanly first.
+Images also open from Explorer (*Open with → Waffle DiskFlashback*, or a double click on an
+`.adf`).
+
+* The DrawBridge is found among the USB serial ports (FTDI, CDC, CP210x, CH340...).
+* Log: `%LOCALAPPDATA%\Waffle\WaffleDiskFlashback.log` (the previous run in `.old`).
+* Disks in a folder instead of on drive letters: the `MountDir` string value in
+  `HKEY_CURRENT_USER\Software\Waffle\DiskFlashback` (environment variables allowed, e.g.
+  `%USERPROFILE%\Floppy`), then restart the app.
+* `WaffleDiskFlashback.exe --quit` quits the running app; when Windows shuts down it
+  unmounts first too.
+
+#### Command line driver
 
 ```bat
 rem The drive is a COM port: Device Manager -> Ports (COM & LPT)
