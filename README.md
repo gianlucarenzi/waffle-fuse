@@ -24,6 +24,10 @@ Supported formats (auto-detected, including density):
 | Amiga with DirCache (`DOS4`/`DOS5`) | | read-only |
 | PC 720 KB (DD) / 1.44 MB (HD) | FAT12 (also FAT16), long names VFAT | read + write |
 
+**Download:** [latest release, v1.1.0](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.0):
+packages for Linux (deb, rpm, Arch, generic), macOS (app and command line) and Windows
+(installer and zip).
+
 ---
 
 On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
@@ -98,7 +102,8 @@ If you test it on another combination, the result is useful to add here.
 ### Packages (any distribution)
 
 Ready-made packages are attached to each release
-(https://github.com/gianlucarenzi/waffle-fuse/releases).
+(https://github.com/gianlucarenzi/waffle-fuse/releases; latest:
+[v1.1.0](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.0)).
 They are built on Debian 11 and run on **any x86_64 distribution with glibc ≥ 2.31**
 (Debian 11 and later, Ubuntu 20.04 and later, Fedora, openSUSE, Arch...): libfuse3,
 libstdc++ and libgcc are linked into the binary, only glibc comes from the system.
@@ -146,11 +151,10 @@ extension:
 brew install macos-fuse-t/homebrew-cask/fuse-t      # or the installer from fuse-t.org
 ```
 
-Two downloads, both universal (one binary for Apple Silicon and Intel), attached to the
-releases from the next version on; until then the latest build is the
-`waffle-fuse-packages-macos` artifact of the *Build waffle-fuse* workflow in the
-[Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab (downloading it needs
-a GitHub login):
+Two downloads, both universal (one binary for Apple Silicon and Intel), attached to each
+release since [v1.1.0](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.0)
+(test builds: the `waffle-fuse-packages-macos` artifact of the *Build waffle-fuse* workflow
+in the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab):
 
 * `Waffle-DiskFlashback-<version>.dmg`: the menu bar app, with the driver inside;
 * `waffle-fuse-<version>-macos-universal.tar.gz`: the command line driver and a one-click
@@ -218,9 +222,10 @@ and `macos/make-dmg.sh "dist/Waffle DiskFlashback.app" <file.dmg>`.
 Requirements: Windows 10 version 1903 or later (x86_64) and [WinFsp](https://winfsp.dev),
 free and without reboot (`winget install WinFsp.WinFsp`).
 
-Two downloads, attached to the releases from the next version on; until then the latest
-build is the `waffle-fuse-packages-windows` artifact of the *Build waffle-fuse* workflow in
-the [Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab:
+Two downloads, attached to each release since
+[v1.1.0](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.0) (test builds:
+the `waffle-fuse-packages-windows` artifact of the *Build waffle-fuse* workflow in the
+[Actions](https://github.com/gianlucarenzi/waffle-fuse/actions) tab):
 
 * `waffle-fuse-setup-<version>.exe`: the installer (English and Italian). It puts
   **Waffle DiskFlashback** and `waffle-fuse.exe` in `C:\Program Files\waffle-fuse`,
