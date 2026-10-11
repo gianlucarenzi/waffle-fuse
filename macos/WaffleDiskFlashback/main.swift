@@ -33,6 +33,8 @@ let fuseTLibrary = "/usr/local/lib/libfuse3.4.dylib"
 let fuseTSite = URL(string: "https://www.fuse-t.org")!
 let mountDir = (NSHomeDirectory() as NSString).appendingPathComponent("Floppy")
 let floppyImageSizes: Set<UInt64> = [901120, 1802240, 737280, 1474560]
+/// WAFFLE_DEBUG=1 in the environment: the driver logs the FUSE trace (-d)
+let driverDebug = ProcessInfo.processInfo.environment["WAFFLE_DEBUG"] != nil ? ["-d"] : []
 
 // waffle-fuse exit codes
 let EXIT_OK: Int32 = 0, EXIT_PORT: Int32 = 2, EXIT_NODISK: Int32 = 3, EXIT_UNKNOWN_FMT: Int32 = 4
@@ -457,7 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func mount() {
         guard let p = port, !quitting else { return }
         setState(.mounting, "Waffle: reading disk…", "mounting")
-        let d = Proc([p, "--automount", mountDir, "-f"],
+        let d = Proc([p, "--automount", mountDir, "-f"] + driverDebug,
                      onEvent: { [weak self] ev in self?.driverEvent(ev) },
                      onExit: { [weak self] code in self?.driverExit(code) })
         proc = d
@@ -797,7 +799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let name = (path as NSString).lastPathComponent
         var disk: VirtualDisk!
-        let p = Proc(["--image", path, "--automount", mountDir, "-f"],
+        let p = Proc(["--image", path, "--automount", mountDir, "-f"] + driverDebug,
                      onEvent: { ev in
                          if ev["event"] == "mounted", let mp = ev["mountpoint"] {
                              disk.mountpoint = mp
