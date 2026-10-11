@@ -19,7 +19,7 @@ description: |
   automount, a tray daemon and .adf/.img images opened as virtual disks.
 vendor: Gianluca Renzi
 homepage: https://github.com/gianlucarenzi/ArduinoFloppyDiskReader
-license: GPL-3.0-or-later
+license: GPL-3.0-only
 
 contents:
   - src: ./stage/waffle-fuse

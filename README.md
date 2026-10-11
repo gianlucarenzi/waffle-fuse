@@ -437,3 +437,12 @@ tests/run-tests.sh          – filesystem tests on images
 * A disk change faster than the check interval (3 s) may not be noticed (the drive signals the
   change only with the DSKCHG line): always unmount before changing the disk.
 * `.ipf` files are not supported.
+
+---
+
+## License
+
+waffle-fuse is distributed under the GNU General Public License version 3 (GPL-3.0), see
+[LICENSE](LICENSE). The DrawBridge interface code in `lib/` by Robert Smith keeps the
+licensing stated in its file headers (Mozilla Public License 2.0 or GNU GPL version 2 or
+later), compatible with distributing the whole under GPL-3.0.
