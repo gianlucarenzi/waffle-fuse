@@ -13,6 +13,9 @@
 # in PATH), mkfs.fat, fsck.fat; amitools (xdftool, xdfscan) and pyfatfs for the
 # independent checks.  Point XDFTOOL, XDFSCAN and TEST_PYTHON at them if they
 # are not in PATH (e.g. inside a virtualenv).
+#
+# Debugging: ONLY="FAT 720K" runs one suite, WAFFLE_DEBUG=1 mounts with the
+# FUSE trace (-d), LOG_TAIL=N shows N driver log lines on each failure.
 
 set -u
 
@@ -50,14 +53,14 @@ trap cleanup EXIT
 ok()   { echo "  ok   $*"; PASS=$((PASS+1)); }
 bad()  {
     echo "  FAIL $*"; FAIL=$((FAIL+1))
-    [ -s "$WORK/fuse.log" ] && { echo "       --- driver log:"; tail -15 "$WORK/fuse.log" | sed 's/^/       /'; }
+    [ -s "$WORK/fuse.log" ] && { echo "       --- driver log:"; tail -"${LOG_TAIL:-15}" "$WORK/fuse.log" | sed 's/^/       /'; }
     return 0
 }
 check() { local what="$1"; shift; if "$@" >"$WORK/check.out" 2>&1; then ok "$what"; else bad "$what"; sed 's/^/       /' "$WORK/check.out" | head -20; fi; }
 
 mount_img() {
     local img="$1"; shift
-    "$BIN" --image "$img" "$MNT" -f "$@" >"$WORK/fuse.log" 2>&1 &
+    "$BIN" --image "$img" "$MNT" -f ${WAFFLE_DEBUG:+-d} "$@" >"$WORK/fuse.log" 2>&1 &
     PID=$!
     for _ in $(seq 50); do
         is_mounted "$MNT" && return 0
@@ -129,6 +132,7 @@ mutate() {
 
 run_suite() {
     local name="$1" img="$2" kind="$3" long="$4"
+    [ -n "${ONLY:-}" ] && [ "$name" != "$ONLY" ] && return
     echo "== $name"
     rm -rf "$WORK/ref" "$WORK/exp" "$WORK/out"
     make_ref "$WORK/ref" "$long"
@@ -213,6 +217,11 @@ for d in dd hd; do
     "$BIN" --format-image "$img" dos "$d" "WAFFLE" 2>/dev/null
     run_suite "waffle-fuse format: dos $d" "$img" fat 1
 done
+
+if [ -n "${ONLY:-}" ]; then
+    echo; echo "passed: $PASS  failed: $FAIL"
+    [ "$FAIL" -eq 0 ]; exit
+fi
 
 # ── Read-only mount ──────────────────────────────────────────────────────────
 echo "== read-only image"
