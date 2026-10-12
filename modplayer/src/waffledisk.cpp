@@ -96,28 +96,32 @@ WaffleDisk waffleDiskOf(const QString &path)
     const bool debug = qEnvironmentVariableIsSet("WAFFLE_MODPLAYER_DEBUG");
     // The volume holding the file: a directory mount (WinFsp mounts disks on
     // folders too) or the drive.  WinFsp drive letters are not known to the
-    // mount manager, GetVolumePathName fails on them (error 1005): then the
-    // drive letter is the volume
+    // mount manager: GetVolumePathName fails on them (error 1005), or gives a
+    // folder of the drive that is no volume root (error 144 next).  Then the
+    // drive letter is the volume.
+    const bool onDrive = native.size() >= 3 && native[1] == L':' && native[2] == L'\\';
+    auto useDrive = [&] {
+        volume[0] = native[0];
+        volume[1] = L':';
+        volume[2] = L'\\';
+        volume[3] = 0;
+    };
     if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH))
     {
-        const DWORD error = GetLastError();
-        if (native.size() >= 3 && native[1] == L':' && native[2] == L'\\')
-        {
-            volume[0] = native[0];
-            volume[1] = L':';
-            volume[2] = L'\\';
-            volume[3] = 0;
-        }
-        else
-        {
-            if (debug) std::fprintf(stderr, "GetVolumePathName(%ls): error %lu\n", native.c_str(), error);
-            return disk;
-        }
+        if (debug) std::fprintf(stderr, "GetVolumePathName(%ls): error %lu\n", native.c_str(), GetLastError());
+        if (!onDrive) return disk;
+        useDrive();
     }
     if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH))
     {
         if (debug) std::fprintf(stderr, "GetVolumeInformation(%ls): error %lu\n", volume, GetLastError());
-        return disk;
+        if (!onDrive) return disk;
+        useDrive();
+        if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH))
+        {
+            if (debug) std::fprintf(stderr, "GetVolumeInformation(%ls): error %lu\n", volume, GetLastError());
+            return disk;
+        }
     }
     if (debug) std::fprintf(stderr, "%ls: volume %ls, label %ls, file system %ls\n", native.c_str(), volume, label, fsName);
     // waffle-fuse names its file system AFFS or FAT; WinFsp shows it as FUSE-...
