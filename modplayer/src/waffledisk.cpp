@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <cstdio>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -38,7 +39,12 @@ WaffleDisk waffleDiskOf(const QString &path)
     // As given: on a WinFsp drive letter the canonical path is a \\?\ device
     // path, where Windows does not find the volume
     const QString file = QFileInfo(path).absoluteFilePath();
-    if (!QFileInfo::exists(file)) return disk;
+    if (!QFileInfo::exists(file))
+    {
+        if (qEnvironmentVariableIsSet("WAFFLE_MODPLAYER_DEBUG"))
+            std::fprintf(stderr, "%s: not found\n", qPrintable(QDir::toNativeSeparators(file)));
+        return disk;
+    }
 #else
     const QString file = QFileInfo(path).canonicalFilePath();
     if (file.isEmpty()) return disk;
@@ -90,15 +96,15 @@ WaffleDisk waffleDiskOf(const QString &path)
     const bool debug = qEnvironmentVariableIsSet("WAFFLE_MODPLAYER_DEBUG");
     if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH))
     {
-        if (debug) qWarning("GetVolumePathName(%ls): error %lu", native.c_str(), GetLastError());
+        if (debug) std::fprintf(stderr, "GetVolumePathName(%ls): error %lu\n", native.c_str(), GetLastError());
         return disk;
     }
     if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH))
     {
-        if (debug) qWarning("GetVolumeInformation(%ls): error %lu", volume, GetLastError());
+        if (debug) std::fprintf(stderr, "GetVolumeInformation(%ls): error %lu\n", volume, GetLastError());
         return disk;
     }
-    if (debug) qWarning("%ls: volume %ls, label %ls, file system %ls", native.c_str(), volume, label, fsName);
+    if (debug) std::fprintf(stderr, "%ls: volume %ls, label %ls, file system %ls\n", native.c_str(), volume, label, fsName);
     // waffle-fuse names its file system AFFS or FAT; WinFsp shows it as FUSE-...
     const QString fs = QString::fromWCharArray(fsName);
     if (fs.compare("FUSE-AFFS", Qt::CaseInsensitive) == 0 || fs.compare("FUSE-FAT", Qt::CaseInsensitive) == 0)
