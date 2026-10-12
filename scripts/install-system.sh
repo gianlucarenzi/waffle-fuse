@@ -38,9 +38,11 @@ media_base() {
 
 if [ "${1:-}" = "--uninstall" ]; then
     if [ -f "$CONF" ]; then
-        # Remove our ACL entries; the directories stay (udisks uses them)
+        # Give our ACL entries back the udisks permissions (u:<user>:r-x); the
+        # directories stay (udisks uses them).  Removing the entry would also
+        # remove the one udisks set and lock the user out of the disks it mounts.
         sed -n 's|^a+ \([^ ]*\) .* u:\([^:]*\):rwx$|\1 \2|p' "$CONF" | while read -r dir u; do
-            [ -d "$dir" ] && setfacl -x "u:$u" "$dir" 2>/dev/null || true
+            [ -d "$dir" ] && setfacl -m "u:$u:r-x" "$dir" 2>/dev/null || true
         done
         rm -f "$CONF"
         echo "Removed $CONF"
