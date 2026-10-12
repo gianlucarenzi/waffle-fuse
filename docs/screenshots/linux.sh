@@ -63,14 +63,19 @@ pkill -x caja
 # ── Waffle ModPlayer: the module on the Amiga floppy, playing ───────────────
 if [ -n "$PLAYER" ]; then
     "$PLAYER" --mute --quit-after 30 "$FLOPPY/WaffleDemo/Music/waffle.mod" >"$WORK/player.log" 2>&1 &
+    MPPID=$!
     if w="$(find_window "Waffle ModPlayer")"; then
         xdotool windowmove "$w" 60 60
         sleep 6      # the VU meters moving, the scroller under way
         shot_window "$w" "linux-modplayer.png"
     else
         echo "::warning::no ModPlayer window"; cat "$WORK/player.log"
+        echo "--- libraries of the X11 plugin not found:"
+        ldd "$(dirname "$PLAYER")/plugins/platforms/libqxcb.so" | grep 'not found'
+        QT_DEBUG_PLUGINS=1 timeout 10 "$PLAYER" --mute --quit-after 2 --force "$FLOPPY/WaffleDemo/Music/waffle.mod" 2>&1 |
+            grep -iE 'cannot|error|fail|xcb' | head -20
     fi
-    pkill -f waffle-modplayer
+    kill $MPPID 2>/dev/null
 fi
 
 # ── Tray daemon: icon and menu (no drive here: waiting for the DrawBridge) ───

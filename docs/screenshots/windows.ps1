@@ -35,7 +35,8 @@ public static class Win
     [DllImport("dwmapi")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int s);
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
 
-    // First visible window with this class (null: any) whose title contains title (null: any)
+    // First visible window with this class (null or empty: any) whose title contains
+    // title (null: any).  PowerShell passes $null to a string parameter as ""
     public static IntPtr Find(string cls, string title)
     {
         IntPtr found = IntPtr.Zero;
@@ -44,7 +45,7 @@ public static class Win
             if (!IsWindowVisible(h)) return true;
             var c = new StringBuilder(256); GetClassName(h, c, 256);
             var t = new StringBuilder(512); GetWindowText(h, t, 512);
-            if ((cls == null || c.ToString() == cls) && (title == null || t.ToString().Contains(title)))
+            if ((string.IsNullOrEmpty(cls) || c.ToString() == cls) && (title == null || t.ToString().Contains(title)))
             {
                 found = h;
                 return false;
