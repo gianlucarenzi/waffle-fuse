@@ -101,7 +101,7 @@ def pattern(n, lead=True):
     return b''.join(rows)
 
 patterns = [pattern(i, lead=False) for i in range(4)] + [pattern(i) for i in range(4)]
-order = [0, 1, 2, 3, 4, 5, 6, 7, 4, 5, 6, 7]
+order = [4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]      # theme, break without the lead, theme
 
 # ── Write the module ─────────────────────────────────────────────────────────
 mod = bytearray(b'waffle-fuse demo'.ljust(20, b'\0'))

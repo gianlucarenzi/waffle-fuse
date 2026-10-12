@@ -65,12 +65,14 @@ PlayerWindow::PlayerWindow(QWidget *parent) : QWidget(parent)
     // Labels in white on blue, names in orange
     auto value = [this] {
         auto *l = new QLabel(this);
+        l->setFont(topaz(16));     // macOS gives labels and buttons a font of their own
         l->setStyleSheet("color: white;");
         l->setTextInteractionFlags(Qt::NoTextInteraction);
         return l;
     };
     auto name = [this](const QString &text) {
         auto *l = new QLabel(text, this);
+        l->setFont(topaz(16));
         l->setStyleSheet(QString("color: %1;").arg(kOrange.name()));
         return l;
     };
@@ -118,6 +120,7 @@ PlayerWindow::PlayerWindow(QWidget *parent) : QWidget(parent)
     // Buttons: grey, raised, as in Workbench 2
     auto button = [this](const QString &text) {
         auto *b = new QPushButton(text, this);
+        b->setFont(topaz(16));
         b->setFocusPolicy(Qt::NoFocus);
         b->setStyleSheet(
             "QPushButton { background: #aaaaaa; color: black; padding: 4px 12px;"
