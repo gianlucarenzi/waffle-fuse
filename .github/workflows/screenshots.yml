@@ -111,9 +111,14 @@ jobs:
           PLAYER_APP=
           if [ -n "${MODPLAYER_FOUND:-}" ]; then
             hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/mpdmg" "$RUNNER_TEMP"/mp/*.dmg
-            cp -R "$RUNNER_TEMP/mpdmg/Waffle ModPlayer.app" "$RUNNER_TEMP/"
+            # Builds older than Waffle ModPlayer have a disk image without it
+            if [ -d "$RUNNER_TEMP/mpdmg/Waffle ModPlayer.app" ]; then
+              cp -R "$RUNNER_TEMP/mpdmg/Waffle ModPlayer.app" "$RUNNER_TEMP/"
+              PLAYER_APP="$RUNNER_TEMP/Waffle ModPlayer.app"
+            else
+              echo "::warning::the latest build of this branch has no Waffle ModPlayer: no screenshot of it"
+            fi
             hdiutil detach "$RUNNER_TEMP/mpdmg"
-            PLAYER_APP="$RUNNER_TEMP/Waffle ModPlayer.app"
           fi
           bash docs/screenshots/macos.sh "$RUNNER_TEMP/shots" "$RUNNER_TEMP/Waffle DiskFlashback.app" "$PLAYER_APP"
 
