@@ -96,6 +96,33 @@ for fmt in ffs dos; do
     umount_img
 done
 
+# Windows: on a drive letter too, as the tray app mounts disks
+if [ -n "$WINDOWS" ]; then
+    echo "== module on a waffle-fuse drive letter (Windows)"
+    "$BIN" --format-image "$WORK/letter.adf" ffs dd "LETTER" >/dev/null
+    "$BIN" --image "$WORK/letter.adf" '*' -f >"$WORK/letter.log" 2>&1 &
+    LPID=$!
+    L=
+    for _ in $(seq 100); do
+        L="$(sed -n 's/^WAFFLE event=mounted mountpoint=//p' "$WORK/letter.log" | tr -d '\r')"
+        [ -n "$L" ] && break
+        sleep 0.1
+    done
+    if [ -n "$L" ]; then
+        cp "$WORK/waffle.mod" "$L/waffle.mod"
+        echo "       file system of $L: $(powershell -NoProfile -Command "([IO.DriveInfo]'$L').DriveFormat" | tr -d '\r')"
+        if out="$("$PLAYER" --is-waffle "$L/waffle.mod" 2>&1)"; then
+            ok "recognised on $L ($(echo "$out" | tr -d '\r'))"
+        else
+            bad "not recognised on $L"
+        fi
+        "$BIN" --unmount "$L"
+    else
+        bad "no drive letter"; cat "$WORK/letter.log"
+    fi
+    wait $LPID 2>/dev/null
+fi
+
 echo "== module elsewhere"
 if "$PLAYER" --is-waffle "$WORK/waffle.mod" >/dev/null 2>&1; then
     bad "a file in $WORK taken for a waffle-fuse disk"
