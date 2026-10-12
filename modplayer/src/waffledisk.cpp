@@ -94,7 +94,15 @@ WaffleDisk waffleDiskOf(const QString &path)
     const std::wstring native = QDir::toNativeSeparators(file).toStdWString();
     wchar_t volume[MAX_PATH] = {0}, label[MAX_PATH] = {0}, fsName[MAX_PATH] = {0};
     const bool debug = qEnvironmentVariableIsSet("WAFFLE_MODPLAYER_DEBUG");
-    if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH))
+    // A drive letter is its own volume: WinFsp drive letters are not known to
+    // the mount manager, GetVolumePathName fails on them (error 1005)
+    if (native.size() >= 3 && native[1] == L':' && native[2] == L'\\')
+    {
+        volume[0] = native[0];
+        volume[1] = L':';
+        volume[2] = L'\\';
+    }
+    else if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH))
     {
         if (debug) std::fprintf(stderr, "GetVolumePathName(%ls): error %lu\n", native.c_str(), GetLastError());
         return disk;
