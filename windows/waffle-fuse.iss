@@ -8,7 +8,7 @@
 ; Files, optionally starts the app at login, opens .adf images with it and adds
 ; waffle-fuse to the PATH, and installs WinFsp (bundled MSI) when it is
 ; missing.  WinFsp is left in place on uninstall: other programs may use it.
-; With the ModPlayer folder (Waffle ModPlayer and its Qt, built by the
+; With the dist-modplayer folder (Waffle ModPlayer and its Qt, built by the
 ; workflow) it also installs the player: music modules (.mod) on waffle-fuse
 ; floppies play in it.
 
@@ -26,7 +26,7 @@
 #define RunKey "Software\Microsoft\Windows\CurrentVersion\Run"
 #define TrayExe "WaffleDiskFlashback.exe"
 #define ModPlayerExe "waffle-modplayer.exe"
-#ifexist "..\ModPlayer\waffle-modplayer.exe"
+#ifexist "..\dist-modplayer\waffle-modplayer.exe"
   #define WithModPlayer
 #endif
 
@@ -111,7 +111,7 @@ Source: "..\packaging\windows\README.txt"; DestDir: "{app}"; Flags: ignoreversio
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "build\winfsp.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall; Tasks: winfsp
 #ifdef WithModPlayer
-Source: "..\ModPlayer\*"; DestDir: "{app}\ModPlayer"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-modplayer\*"; DestDir: "{app}\ModPlayer"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
 [Icons]

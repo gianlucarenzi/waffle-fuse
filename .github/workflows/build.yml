@@ -677,7 +677,8 @@ jobs:
 
       - name: Build Waffle ModPlayer (Qt 6.8, MinGW)
         # The official Qt 6.8 for MinGW with its own compiler (MinGW 13.1);
-        # windeployqt puts the Qt DLLs, plugins and MinGW runtime in ModPlayer\
+        # windeployqt puts the Qt DLLs, plugins and MinGW runtime in dist-modplayer\
+        # (not "ModPlayer": the file system ignores case, that is the source folder)
         shell: bash
         run: |
           T="$(cygpath -u "$RUNNER_TEMP")"
@@ -694,17 +695,17 @@ jobs:
             -DCMAKE_PREFIX_PATH="$(cygpath -m "$T/Qt/6.8.3/mingw_64")" \
             -DMIKMOD_ROOT="$(cygpath -m "$T/mikmod")" -DWAFFLE_VERSION="$VERSION"
           cmake --build build-modplayer --parallel
-          mkdir -p ModPlayer
-          cp build-modplayer/waffle-modplayer.exe modplayer/THIRD-PARTY-NOTICES.txt ModPlayer/
-          strip ModPlayer/waffle-modplayer.exe
+          mkdir -p dist-modplayer
+          cp build-modplayer/waffle-modplayer.exe modplayer/THIRD-PARTY-NOTICES.txt dist-modplayer/
+          strip dist-modplayer/waffle-modplayer.exe
           "$T/Qt/6.8.3/mingw_64/bin/windeployqt.exe" --release --no-translations \
-            --no-system-d3d-compiler --no-opengl-sw --compiler-runtime ModPlayer/waffle-modplayer.exe
-          find ModPlayer -type f | sort
-          du -sh ModPlayer
+            --no-system-d3d-compiler --no-opengl-sw --compiler-runtime dist-modplayer/waffle-modplayer.exe
+          find dist-modplayer -type f | sort
+          du -sh dist-modplayer
 
       - name: Test Waffle ModPlayer (modules on waffle-fuse disks)
         timeout-minutes: 5
-        run: SHOT_DIR="$(cygpath -u "$RUNNER_TEMP")/shots" bash tests/test-modplayer.sh "$PWD/ModPlayer/waffle-modplayer.exe"
+        run: SHOT_DIR="$(cygpath -u "$RUNNER_TEMP")/shots" bash tests/test-modplayer.sh "$PWD/dist-modplayer/waffle-modplayer.exe"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -719,7 +720,7 @@ jobs:
           $name = "waffle-fuse-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "dist\$name" | Out-Null
           Copy-Item WaffleDiskFlashback.exe, waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
-          Copy-Item -Recurse ModPlayer "dist\$name\ModPlayer"
+          Copy-Item -Recurse dist-modplayer "dist\$name\ModPlayer"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
