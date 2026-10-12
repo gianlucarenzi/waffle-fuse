@@ -13,11 +13,18 @@ on:
       - 'docs/screenshots/**'
       - '.github/workflows/screenshots.yml'
 
+# Waffle ModPlayer comes from the artifacts of the Build workflow
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   linux:
     name: Linux (Xvfb, Xfwm, Caja)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,16 +35,34 @@ jobs:
             build-essential pkg-config libfuse3-dev fuse3 \
             xvfb x11-xserver-utils xdotool imagemagick dbus-x11 at-spi2-core \
             xfwm4 caja stalonetray python3-gi gir1.2-gtk-3.0 libnotify-bin \
-            librsvg2-common adwaita-icon-theme fonts-dejavu-core
+            librsvg2-common adwaita-icon-theme fonts-dejavu-core \
+            libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0 gdb
           sudo chmod 666 /dev/fuse
 
       - name: Build waffle-fuse
         run: make -j"$(nproc)"
 
+      - name: Get Waffle ModPlayer (latest successful build of this branch)
+        # Not in a release yet: from the artifacts of the Build workflow
+        shell: bash
+        run: |
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --branch "$GITHUB_REF_NAME" \
+                --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -n "$RUN" ] && gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name waffle-modplayer-linux-x86_64 --dir "$RUNNER_TEMP/mp"; then
+            echo "MODPLAYER_FOUND=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::no build of this branch with Waffle ModPlayer: no screenshot of it"
+          fi
+
       - name: Take the screenshots
         run: |
+          PLAYER=
+          if [ -n "${MODPLAYER_FOUND:-}" ]; then
+            mkdir "$RUNNER_TEMP/modplayer" && tar -C "$RUNNER_TEMP/modplayer" -xf "$RUNNER_TEMP/mp/modplayer-bundle.tar"
+            PLAYER="$RUNNER_TEMP/modplayer/waffle-modplayer"
+          fi
           xvfb-run -s "-screen 0 1280x800x24" dbus-run-session -- \
-            bash docs/screenshots/linux.sh "$RUNNER_TEMP/shots"
+            bash docs/screenshots/linux.sh "$RUNNER_TEMP/shots" "$PLAYER"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -69,8 +94,28 @@ jobs:
           cp -R "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app" "$RUNNER_TEMP/"
           hdiutil detach "$RUNNER_TEMP/dmg"
 
+      - name: Get Waffle ModPlayer (latest successful build of this branch)
+        # Not in a release yet: from the artifacts of the Build workflow
+        shell: bash
+        run: |
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --branch "$GITHUB_REF_NAME" \
+                --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -n "$RUN" ] && gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name waffle-fuse-packages-macos --dir "$RUNNER_TEMP/mp"; then
+            echo "MODPLAYER_FOUND=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::no build of this branch with Waffle ModPlayer: no screenshot of it"
+          fi
+
       - name: Take the screenshots
-        run: bash docs/screenshots/macos.sh "$RUNNER_TEMP/shots" "$RUNNER_TEMP/Waffle DiskFlashback.app"
+        run: |
+          PLAYER_APP=
+          if [ -n "${MODPLAYER_FOUND:-}" ]; then
+            hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/mpdmg" "$RUNNER_TEMP"/mp/*.dmg
+            cp -R "$RUNNER_TEMP/mpdmg/Waffle ModPlayer.app" "$RUNNER_TEMP/"
+            hdiutil detach "$RUNNER_TEMP/mpdmg"
+            PLAYER_APP="$RUNNER_TEMP/Waffle ModPlayer.app"
+          fi
+          bash docs/screenshots/macos.sh "$RUNNER_TEMP/shots" "$RUNNER_TEMP/Waffle DiskFlashback.app" "$PLAYER_APP"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -111,12 +156,30 @@ jobs:
         shell: pwsh
         run: gh release download --pattern 'waffle-fuse-setup-*.exe' --dir "$env:RUNNER_TEMP"
 
+      - name: Get Waffle ModPlayer (latest successful build of this branch)
+        # Not in a release yet: from the artifacts of the Build workflow
+        shell: bash
+        run: |
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --branch "$GITHUB_REF_NAME" \
+                --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -n "$RUN" ] && gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name waffle-fuse-packages-windows --dir "$RUNNER_TEMP/mp"; then
+            echo "MODPLAYER_FOUND=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::no build of this branch with Waffle ModPlayer: no screenshot of it"
+          fi
+
       - name: Take the screenshots
         # Windows PowerShell: System.Drawing for the screen captures
         shell: powershell
         run: |
           $setup = (Get-ChildItem "$env:RUNNER_TEMP\waffle-fuse-setup-*.exe").FullName
-          ./docs/screenshots/windows.ps1 -Out "$env:RUNNER_TEMP\shots" -Setup $setup
+          $player = ""
+          if ($env:MODPLAYER_FOUND) {
+            $zip = Get-ChildItem "$env:RUNNER_TEMP\mp\waffle-fuse-*-windows-x86_64.zip" | Select-Object -First 1
+            Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\mpzip"
+            $player = (Get-ChildItem -Recurse "$env:RUNNER_TEMP\mpzip" -Filter waffle-modplayer.exe | Select-Object -First 1).FullName
+          }
+          ./docs/screenshots/windows.ps1 -Out "$env:RUNNER_TEMP\shots" -Setup $setup -ModPlayer $player
 
       - uses: actions/upload-artifact@v4
         with:

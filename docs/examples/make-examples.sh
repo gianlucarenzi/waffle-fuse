@@ -26,7 +26,7 @@ fi
 # fill <mounted dir>: the same small tree on both disks
 fill() {
     local d="$1"
-    mkdir -p "$d/Docs" "$d/Pictures" "$d/Data"
+    mkdir -p "$d/Docs" "$d/Pictures" "$d/Data" "$d/Music"
     cat > "$d/ReadMe.txt" <<'EOF'
 Welcome to waffle-fuse!
 
@@ -45,6 +45,8 @@ EOF
     # A small picture and a 4 KB binary file
     cp "$HERE/../../icons/amiga-floppy.svg" "$d/Pictures/floppy.svg"
     head -c 4096 /dev/zero | tr '\0' '\125' > "$d/Data/pattern.bin"
+    # A ProTracker module: double-click it (Waffle ModPlayer)
+    python3 "$HERE/make-mod.py" "$d/Music/waffle.mod" >/dev/null
     date -u '+Created %Y-%m-%d by docs/examples/make-examples.sh' > "$d/Created.txt"
 }
 

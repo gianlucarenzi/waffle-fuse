@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Waffle ModPlayer
+Comment=Play Amiga music modules found on waffle-fuse floppies, with VU meters
+Comment[it]=Suona i moduli musicali Amiga trovati sui floppy di waffle-fuse, con i VU meter
+Exec=WAFFLE_DIR_PLACEHOLDER/waffle-modplayer %f
+Icon=ICON_PATH_PLACEHOLDER/modplayer.svg
+Terminal=false
+NoDisplay=true
+MimeType=audio/x-mod;
+Categories=AudioVideo;Audio;Player;

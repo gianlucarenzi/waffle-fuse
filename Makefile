@@ -124,6 +124,21 @@ clean:
 install: $(TARGET)
 	install -m 755 $(TARGET) $(PREFIX)/bin/$(TARGET)
 
+# ── Waffle ModPlayer (optional: Qt 6 and libmikmod, built with CMake) ────────
+# The easter egg: modules (.mod) on waffle-fuse floppies play with VU meters.
+# Not part of `all`: waffle-fuse itself needs neither Qt nor libmikmod.
+MODPLAYER_BUILD ?= modplayer/build
+MODPLAYER_VERSION ?= dev
+.PHONY: modplayer
+modplayer:
+	cmake -S modplayer -B $(MODPLAYER_BUILD) -DCMAKE_BUILD_TYPE=Release -DWAFFLE_VERSION=$(MODPLAYER_VERSION) $(MODPLAYER_CMAKE_FLAGS)
+	cmake --build $(MODPLAYER_BUILD) --parallel
+ifdef WINDOWS
+	cp $(MODPLAYER_BUILD)/waffle-modplayer.exe .
+else ifneq ($(shell uname -s),Darwin)
+	cp $(MODPLAYER_BUILD)/waffle-modplayer .
+endif
+
 # Filesystem tests on disk images (no hardware needed)
 test: $(TARGET)
 	tests/run-tests.sh

@@ -5,6 +5,11 @@ lib/*.o
 lib/*.d
 waffle-fuse
 src/icons_embedded.h
+waffle-modplayer
+waffle-modplayer.exe
+modplayer/build/
+dist-modplayer/
+build-modplayer/
 
 # Mountpoint (empty dir kept via .gitkeep)
 mountpoint/*
@@ -20,3 +25,4 @@ windows/*.res.o
 windows/build/
 WaffleDiskFlashback.exe
 windows/tray/*.o
+aqtinstall.log

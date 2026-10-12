@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/fonts">
+    <file alias="TopazPlus_a500_v1.0.ttf">TopazPlus_a500_v1.0.ttf</file>
+  </qresource>
+  <qresource prefix="/icons">
+    <file alias="waffle-modplayer.png">waffle-modplayer.png</file>
+  </qresource>
+</RCC>

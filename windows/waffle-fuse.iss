@@ -8,6 +8,9 @@
 ; Files, optionally starts the app at login, opens .adf images with it and adds
 ; waffle-fuse to the PATH, and installs WinFsp (bundled MSI) when it is
 ; missing.  WinFsp is left in place on uninstall: other programs may use it.
+; With the dist-modplayer folder (Waffle ModPlayer and its Qt, built by the
+; workflow) it also installs the player: music modules (.mod) on waffle-fuse
+; floppies play in it.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -22,6 +25,10 @@
 #define EnvKey "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
 #define RunKey "Software\Microsoft\Windows\CurrentVersion\Run"
 #define TrayExe "WaffleDiskFlashback.exe"
+#define ModPlayerExe "waffle-modplayer.exe"
+#ifexist "..\dist-modplayer\waffle-modplayer.exe"
+  #define WithModPlayer
+#endif
 
 [Setup]
 AppId={{6B0F3C1E-7A52-4D8B-9C2E-5F1A0D3B8E47}
@@ -88,6 +95,8 @@ english.CommandPrompt=waffle-fuse (Command Prompt)
 italian.CommandPrompt=waffle-fuse (Prompt dei comandi)
 english.ReadMe=waffle-fuse - Read me
 italian.ReadMe=waffle-fuse - Leggimi
+english.ModuleType=Music module
+italian.ModuleType=Modulo musicale
 
 [Tasks]
 Name: "startup"; Description: "{cm:StartAtLogin}"
@@ -101,6 +110,9 @@ Source: "..\waffle-fuse.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\packaging\windows\README.txt"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "build\winfsp.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall; Tasks: winfsp
+#ifdef WithModPlayer
+Source: "..\dist-modplayer\*"; DestDir: "{app}\ModPlayer"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\Waffle DiskFlashback"; Filename: "{app}\{#TrayExe}"
@@ -130,6 +142,20 @@ Root: HKA; Subkey: "Software\Classes\.ima\OpenWithProgids"; ValueType: string; V
     ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.adf"; ValueType: string; ValueData: "Waffle.FloppyImage"; \
     Flags: uninsdeletevalue; Tasks: associate
+#ifdef WithModPlayer
+; Waffle ModPlayer: "Open with" for .mod files, and the default program when
+; no other one has them (Windows keeps the choice of the user)
+Root: HKA; Subkey: "Software\Classes\Waffle.Module"; ValueType: string; ValueData: "{cm:ModuleType}"; \
+    Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Waffle.Module\DefaultIcon"; ValueType: string; \
+    ValueData: "{app}\ModPlayer\{#ModPlayerExe},0"
+Root: HKA; Subkey: "Software\Classes\Waffle.Module\shell\open\command"; ValueType: string; \
+    ValueData: """{app}\ModPlayer\{#ModPlayerExe}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.mod\OpenWithProgids"; ValueType: string; ValueName: "Waffle.Module"; \
+    ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mod"; ValueType: string; ValueData: "Waffle.Module"; \
+    Flags: uninsdeletevalue; Check: not ModHasProgram
+#endif
 Root: HKLM; Subkey: "{#EnvKey}"; ValueType: expandsz; ValueName: "Path"; \
     ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
@@ -156,16 +182,34 @@ begin
   end;
 end;
 
+// Waffle ModPlayer has nothing to save: just end it, so its files can be replaced
+procedure CloseModPlayer;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#ModPlayerExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// .mod files already open with another program (ours too, from an earlier install)
+function ModHasProgram: Boolean;
+var
+  ProgId: String;
+begin
+  Result := RegQueryStringValue(HKCR, '.mod', '', ProgId) and (ProgId <> '') and (ProgId <> 'Waffle.Module');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   WizardForm.StatusLabel.Caption := CustomMessage('ClosingApp');
   CloseTrayApp(ExpandConstant('{app}'));
+  CloseModPlayer;
   Result := '';
 end;
 
 function InitializeUninstall: Boolean;
 begin
   CloseTrayApp(ExpandConstant('{app}'));
+  CloseModPlayer;
   Result := True;
 end;
 

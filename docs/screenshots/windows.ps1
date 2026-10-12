@@ -1,14 +1,15 @@
 # Screenshots of waffle-fuse on Windows, for the documentation.
 # Runs on a Windows desktop with WinFsp installed (CI: .github/workflows/screenshots.yml):
 #
-#   pwsh docs/screenshots/windows.ps1 -Out <dir> -Setup <waffle-fuse-setup.exe>
+#   pwsh docs/screenshots/windows.ps1 -Out <dir> -Setup <waffle-fuse-setup.exe> [-ModPlayer <waffle-modplayer.exe>]
 #
 # WaffleDiskFlashback.exe and waffle-fuse.exe must be built in the repository.
 # The demo images of docs/examples are opened as virtual disks by the tray app.
 
 param(
     [string]$Out = "docs\images\screenshots",
-    [string]$Setup = ""
+    [string]$Setup = "",
+    [string]$ModPlayer = ""
 )
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force $Out | Out-Null
@@ -34,7 +35,8 @@ public static class Win
     [DllImport("dwmapi")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int s);
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
 
-    // First visible window with this class (null: any) whose title contains title (null: any)
+    // First visible window with this class (null or empty: any) whose title contains
+    // title (null: any).  PowerShell passes $null to a string parameter as ""
     public static IntPtr Find(string cls, string title)
     {
         IntPtr found = IntPtr.Zero;
@@ -43,7 +45,7 @@ public static class Win
             if (!IsWindowVisible(h)) return true;
             var c = new StringBuilder(256); GetClassName(h, c, 256);
             var t = new StringBuilder(512); GetWindowText(h, t, 512);
-            if ((cls == null || c.ToString() == cls) && (title == null || t.ToString().Contains(title)))
+            if ((string.IsNullOrEmpty(cls) || c.ToString() == cls) && (title == null || t.ToString().Contains(title)))
             {
                 found = h;
                 return false;
@@ -130,6 +132,23 @@ if ($menu -ne [IntPtr]::Zero) {
     $b.Dispose()
     Write-Host "saved windows-tray-menu.png"
     [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
+}
+
+# ── Waffle ModPlayer: the module on the Amiga floppy, playing ───────────────
+if ($ModPlayer) {
+    $drive = [IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq "WaffleDemo" } | Select-Object -First 1
+    if ($drive) {
+        $mod = Join-Path $drive.RootDirectory.FullName "Music\waffle.mod"
+        Start-Process $ModPlayer -ArgumentList "--mute", "--quit-after", "40", "`"$mod`""
+        $mp = Wait-Window $null "Waffle ModPlayer" 30
+        if ($mp -ne [IntPtr]::Zero) {
+            Start-Sleep -Seconds 5      # the VU meters moving, the scroller under way
+            Save-Window $mp "windows-modplayer.png" 680 500
+        }
+        Get-Process waffle-modplayer -ErrorAction SilentlyContinue | Stop-Process -Force
+    } else {
+        Write-Warning "WaffleDemo is not mounted on a drive letter"
+    }
 }
 
 # ── The installer: first page and the options page ───────────────────────────
