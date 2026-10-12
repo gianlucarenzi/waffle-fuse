@@ -87,8 +87,18 @@ WaffleDisk waffleDiskOf(const QString &path)
 #elif defined(Q_OS_WIN)
     const std::wstring native = QDir::toNativeSeparators(file).toStdWString();
     wchar_t volume[MAX_PATH] = {0}, label[MAX_PATH] = {0}, fsName[MAX_PATH] = {0};
-    if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH)) return disk;
-    if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH)) return disk;
+    const bool debug = qEnvironmentVariableIsSet("WAFFLE_MODPLAYER_DEBUG");
+    if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH))
+    {
+        if (debug) qWarning("GetVolumePathName(%ls): error %lu", native.c_str(), GetLastError());
+        return disk;
+    }
+    if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH))
+    {
+        if (debug) qWarning("GetVolumeInformation(%ls): error %lu", volume, GetLastError());
+        return disk;
+    }
+    if (debug) qWarning("%ls: volume %ls, label %ls, file system %ls", native.c_str(), volume, label, fsName);
     // waffle-fuse names its file system AFFS or FAT; WinFsp shows it as FUSE-...
     const QString fs = QString::fromWCharArray(fsName);
     if (fs.compare("FUSE-AFFS", Qt::CaseInsensitive) == 0 || fs.compare("FUSE-FAT", Qt::CaseInsensitive) == 0)

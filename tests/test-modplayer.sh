@@ -115,6 +115,7 @@ if [ -n "$WINDOWS" ]; then
             ok "recognised on $L ($(echo "$out" | tr -d '\r'))"
         else
             bad "not recognised on $L"
+            WAFFLE_MODPLAYER_DEBUG=1 "$PLAYER" --is-waffle "$L/waffle.mod" 2>&1 | sed 's/^/       /'
         fi
         "$BIN" --unmount "$L"
     else
