@@ -24,7 +24,7 @@ Supported formats (auto-detected, including density):
 | Amiga with DirCache (`DOS4`/`DOS5`) | | read-only |
 | PC 720 KB (DD) / 1.44 MB (HD) | FAT12 (also FAT16), long names VFAT | read + write |
 
-**Download:** [latest release, v1.1.1](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.1):
+**Download:** [latest release, v1.1.2](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.2):
 packages for Linux (deb, rpm, Arch, generic), macOS (app and command line) and Windows
 (installer and zip).
 
@@ -113,7 +113,7 @@ If you test it on another combination, the result is useful to add here.
 
 Ready-made packages are attached to each release
 (https://github.com/gianlucarenzi/waffle-fuse/releases; latest:
-[v1.1.1](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.1)).
+[v1.1.2](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.2)).
 They are built on Debian 11 and run on **any x86_64 distribution with glibc ≥ 2.31**
 (Debian 11 and later, Ubuntu 20.04 and later, Fedora, openSUSE, Arch...): libfuse3,
 libstdc++ and libgcc are linked into the binary, only glibc comes from the system.
