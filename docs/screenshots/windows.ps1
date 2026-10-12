@@ -31,6 +31,7 @@ public static class Win
     [DllImport("user32")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool r);
     [DllImport("user32")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32")] static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("dwmapi")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int s);
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
@@ -79,6 +80,15 @@ public static class Win
         using (var g = Graphics.FromImage(b)) g.CopyFromScreen(r.L, r.T, 0, 0, b.Size);
         return b;
     }
+
+    public static bool Same(Bitmap a, Bitmap b)
+    {
+        if (a.Width != b.Width || a.Height != b.Height) return false;
+        for (int y = 0; y < a.Height; y += 2)
+            for (int x = 0; x < a.Width; x += 2)
+                if (a.GetPixel(x, y) != b.GetPixel(x, y)) return false;
+        return true;
+    }
 }
 "@
 
@@ -98,7 +108,17 @@ function Save-Window([IntPtr]$Handle, [string]$Name, [int]$Width = 0, [int]$Heig
     if ($Width) { [Win]::MoveWindow($Handle, 40, 40, $Width, $Height, $true) | Out-Null }
     [Win]::SetForegroundWindow($Handle) | Out-Null
     Start-Sleep -Milliseconds 1500
+    # Explorer draws its tabs, address bar and toolbar after the window appears
+    # (later still when it starts cold): wait until the window stops changing
     $b = [Win]::Capture($Handle)
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 750
+        $n = [Win]::Capture($Handle)
+        $same = [Win]::Same($b, $n)
+        $b.Dispose()
+        $b = $n
+        if ($same) { break }
+    }
     $b.Save((Join-Path $Out $Name), [System.Drawing.Imaging.ImageFormat]::Png)
     $b.Dispose()
     Write-Host "saved $Name"
@@ -106,6 +126,17 @@ function Save-Window([IntPtr]$Handle, [string]$Name, [int]$Width = 0, [int]$Heig
 
 $root = Resolve-Path "$PSScriptRoot\..\.."
 $tray = Join-Path $root "WaffleDiskFlashback.exe"
+
+# Explorer started cold draws the first window late: open and close one first
+Start-Process explorer.exe "shell:MyComputerFolder"
+$warm = Wait-Window "CabinetWClass" "This PC"
+if ($warm -ne [IntPtr]::Zero) {
+    Start-Sleep -Seconds 3
+    [Win]::PostMessage($warm, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    for ($i = 0; $i -lt 20 -and [Win]::Find("CabinetWClass", "This PC") -ne [IntPtr]::Zero; $i++) {
+        Start-Sleep -Milliseconds 250
+    }
+}
 
 # ── The tray app opens the demo images on drive letters, in Explorer ─────────
 # (two waffle-fuse at once, each on its own free letter)
