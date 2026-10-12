@@ -16,7 +16,7 @@
 #
 # Left to the system, as every desktop has them: glibc, libstdc++, libX11 and
 # libxcb, Wayland, OpenGL/EGL, fontconfig, freetype, GLib, D-Bus, xkbcommon.  libmikmod
-# is linked statically (build-libmikmod.sh).
+# is linked statically (build-libmikmod.sh).  Needs readelf and patchelf.
 
 set -e
 
@@ -78,6 +78,9 @@ while [ -n "$QUEUE" ]; do
         fi
         cp -L "$src" "$OUT/lib/$n"
         chmod 644 "$OUT/lib/$n"
+        # A system library copied here looks for its own dependencies next to
+        # itself too (libxcb-cursor needs libxcb-util): RUNPATH is not inherited
+        case "$src" in "$QT"/*) ;; *) patchelf --set-rpath '$ORIGIN' "$OUT/lib/$n" ;; esac
         QUEUE="$QUEUE $OUT/lib/$n"
     done
 done
@@ -88,7 +91,7 @@ install -m 644 "$(dirname "$0")/THIRD-PARTY-NOTICES.txt" "$OUT/"
 printf '[Paths]\nPrefix = .\nPlugins = plugins\n' > "$OUT/qt.conf"
 
 # Every library looks for the others next to itself: Qt's own have RUNPATH
-# $ORIGIN; the plugins $ORIGIN/../../lib.  The system ones copied here need nothing.
+# $ORIGIN, the plugins $ORIGIN/../../lib, the system ones got $ORIGIN above.
 echo "Bundled in $OUT:"
 ls "$OUT/lib"
 du -sh "$OUT"
