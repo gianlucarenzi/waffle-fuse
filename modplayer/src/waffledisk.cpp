@@ -34,8 +34,15 @@ static QString unescapeMountField(const QString &s)
 WaffleDisk waffleDiskOf(const QString &path)
 {
     WaffleDisk disk;
+#ifdef Q_OS_WIN
+    // As given: on a WinFsp drive letter the canonical path is a \\?\ device
+    // path, where Windows does not find the volume
+    const QString file = QFileInfo(path).absoluteFilePath();
+    if (!QFileInfo::exists(file)) return disk;
+#else
     const QString file = QFileInfo(path).canonicalFilePath();
     if (file.isEmpty()) return disk;
+#endif
 
 #if defined(Q_OS_LINUX)
     // The mount that holds the file is the one with the longest mountpoint
