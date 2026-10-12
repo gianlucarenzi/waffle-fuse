@@ -62,6 +62,7 @@ WaffleDisk waffleDiskOf(const QString &path)
     {
         disk.found = true;
         disk.root = bestMount;
+        disk.name = QFileInfo(bestMount).fileName();
     }
 #elif defined(Q_OS_MACOS)
     struct statfs st;
@@ -74,18 +75,20 @@ WaffleDisk waffleDiskOf(const QString &path)
     {
         disk.found = true;
         disk.root = root;
+        disk.name = QFileInfo(root).fileName();
     }
 #elif defined(Q_OS_WIN)
     const std::wstring native = QDir::toNativeSeparators(file).toStdWString();
-    wchar_t volume[MAX_PATH] = {0}, fsName[MAX_PATH] = {0};
+    wchar_t volume[MAX_PATH] = {0}, label[MAX_PATH] = {0}, fsName[MAX_PATH] = {0};
     if (!GetVolumePathNameW(native.c_str(), volume, MAX_PATH)) return disk;
-    if (!GetVolumeInformationW(volume, nullptr, 0, nullptr, nullptr, nullptr, fsName, MAX_PATH)) return disk;
+    if (!GetVolumeInformationW(volume, label, MAX_PATH, nullptr, nullptr, nullptr, fsName, MAX_PATH)) return disk;
     // waffle-fuse names its file system AFFS or FAT; WinFsp shows it as FUSE-...
     const QString fs = QString::fromWCharArray(fsName);
     if (fs.compare("FUSE-AFFS", Qt::CaseInsensitive) == 0 || fs.compare("FUSE-FAT", Qt::CaseInsensitive) == 0)
     {
         disk.found = true;
         disk.root = QString::fromWCharArray(volume);
+        disk.name = QString::fromWCharArray(label);
     }
 #endif
     return disk;

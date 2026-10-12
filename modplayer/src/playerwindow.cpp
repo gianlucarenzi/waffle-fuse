@@ -209,9 +209,11 @@ bool PlayerWindow::openFile(const QString &path)
     const WaffleDisk disk = waffleDiskOf(path);
     if (disk.found)
     {
-        QString volume = QFileInfo(disk.root).fileName();
-        if (volume.isEmpty()) volume = QDir::toNativeSeparators(disk.root);
-        m_disk = QString("%1  (waffle-fuse)").arg(volume);
+        // "WaffleDemo (Z:)" on a drive letter, else the volume name
+        QString volume = disk.name.isEmpty() ? QDir::toNativeSeparators(disk.root) : disk.name;
+        if (disk.root.size() <= 3 && disk.root.contains(':'))
+            volume += QString(" (%1)").arg(disk.root.left(2));
+        m_disk = QString("%1  -  waffle-fuse").arg(volume);
     }
     else
     {

@@ -2,7 +2,10 @@
 # Screenshots of waffle-fuse on a Linux desktop, for the documentation.
 # Runs in a virtual X display (CI: .github/workflows/screenshots.yml):
 #
-#   xvfb-run -s "-screen 0 1280x800x24" dbus-run-session docs/screenshots/linux.sh <out dir>
+#   xvfb-run -s "-screen 0 1280x800x24" dbus-run-session docs/screenshots/linux.sh <out dir> [player]
+#
+# player: Waffle ModPlayer (the bundle of the Linux packages), for its window
+# playing the module of the demo floppy.
 #
 # Needs: waffle-fuse built in the repository, xfwm4, caja, stalonetray,
 # xdotool, ImageMagick, python3-gi with GTK 3 and librsvg (SVG icons).
@@ -12,6 +15,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$HERE/../.."
 OUT="${1:-$ROOT/docs/images/screenshots}"
+PLAYER="${2:-}"
 mkdir -p "$OUT"
 WORK="$(mktemp -d)"
 FLOPPY="$HOME/Floppy"
@@ -55,6 +59,19 @@ for vol in WaffleDemo WAFFLEDOS; do
     fi
 done
 pkill -x caja
+
+# ── Waffle ModPlayer: the module on the Amiga floppy, playing ───────────────
+if [ -n "$PLAYER" ]; then
+    "$PLAYER" --mute --quit-after 30 "$FLOPPY/WaffleDemo/Music/waffle.mod" >"$WORK/player.log" 2>&1 &
+    if w="$(find_window "Waffle ModPlayer")"; then
+        xdotool windowmove "$w" 60 60
+        sleep 6      # the VU meters moving, the scroller under way
+        shot_window "$w" "linux-modplayer.png"
+    else
+        echo "::warning::no ModPlayer window"; cat "$WORK/player.log"
+    fi
+    pkill -f waffle-modplayer
+fi
 
 # ── Tray daemon: icon and menu (no drive here: waiting for the DrawBridge) ───
 stalonetray --geometry 6x1-0+0 --icon-size 24 --kludges force_icons_size \

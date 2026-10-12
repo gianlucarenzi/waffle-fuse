@@ -13,6 +13,7 @@ struct WaffleDisk
 {
     bool found = false;
     QString root;       // mountpoint or drive ("/media/me/WaffleDemo", "Z:\")
+    QString name;       // volume name ("WaffleDemo")
 };
 
 WaffleDisk waffleDiskOf(const QString &path);

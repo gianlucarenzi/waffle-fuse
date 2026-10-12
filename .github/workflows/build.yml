@@ -695,7 +695,7 @@ jobs:
             -DMIKMOD_ROOT="$(cygpath -m "$T/mikmod")" -DWAFFLE_VERSION="$VERSION"
           cmake --build build-modplayer --parallel
           mkdir -p ModPlayer
-          cp build-modplayer/waffle-modplayer.exe ModPlayer/
+          cp build-modplayer/waffle-modplayer.exe modplayer/THIRD-PARTY-NOTICES.txt ModPlayer/
           strip ModPlayer/waffle-modplayer.exe
           "$T/Qt/6.8.3/mingw_64/bin/windeployqt.exe" --release --no-translations \
             --no-system-d3d-compiler --no-opengl-sw --compiler-runtime ModPlayer/waffle-modplayer.exe

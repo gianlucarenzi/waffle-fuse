@@ -459,6 +459,45 @@ Manually: `scripts/install-desktop.sh --no-image-handler` removes only the assoc
 Warning: changes made on a virtual disk go into the file itself. To keep an original ADF
 intact, open a copy.
 
+### Waffle ModPlayer (a surprise on the floppies)
+
+Double-click a music module (`.mod`) on a disk mounted by waffle-fuse, and it plays in
+**Waffle ModPlayer**, with the VU meters of WaffleCopyPRO, one bar per channel, a sine
+scroller and a copper bar title. The demo floppy has one:
+[`Music/waffle.mod`](docs/examples) on `WaffleDemo.adf`.
+
+| Linux | macOS | Windows |
+|---|---|---|
+| ![Waffle ModPlayer on Linux](docs/images/screenshots/linux-modplayer.png) | ![Waffle ModPlayer on macOS](docs/images/screenshots/macos-modplayer.png) | ![Waffle ModPlayer on Windows](docs/images/screenshots/windows-modplayer.png) |
+
+* **Linux**: in the packages, with its own Qt 6 in `/opt/waffle-fuse/modplayer` (no Qt
+  needed on the system). `install-desktop.sh` makes it the program for `audio/x-mod`; a
+  module that is *not* on a waffle-fuse disk goes on to the program that played modules
+  before (remembered in `~/.config/waffle-fuse/previous-handlers`, given back on
+  uninstall; `--no-mod-handler` leaves modules alone).
+* **macOS**: *Waffle ModPlayer.app* in the disk image, next to Waffle DiskFlashback
+  (universal: Apple Silicon and Intel, macOS 12 or later). Drag it to Applications too: it
+  opens modules when no other application does, and is always in *Open With*.
+* **Windows**: installed in `C:\Program Files\waffle-fuse\ModPlayer` (also in the zip),
+  in *Open with* for `.mod` files, and their default program when no other one has them.
+
+Keys: Space pause, S stop, ← → previous/next pattern, O open, Esc quit; modules can also
+be dropped on the window. It plays what libmikmod plays (`.mod`, `.xm`, `.s3m`, `.it`,
+`.med`, `.669`, `.mtm`...). How it knows a waffle-fuse disk: the mount source
+`waffle:<drive or image>` (Linux; on macOS also the volume icon that waffle-fuse serves),
+the file system name `FUSE-AFFS` / `FUSE-FAT` (Windows).
+
+From source (Qt 6 and libmikmod development files, CMake):
+
+```bash
+make modplayer                 # builds ./waffle-modplayer
+./scripts/install-desktop.sh   # registers it for .mod files (Linux)
+```
+
+Release builds link libmikmod statically (`modplayer/build-libmikmod.sh`: only the
+native audio outputs) and carry Qt (`modplayer/bundle-linux.sh`, `macdeployqt`,
+`windeployqt`). Tests: `tests/test-modplayer.sh`.
+
 ### Where disks are mounted
 
 The mount folder takes the name of the Amiga volume or FAT label; if the disk
@@ -725,6 +764,11 @@ waffle-fuse is distributed under the GNU General Public License version 3 (GPL-3
 [LICENSE](LICENSE). The DrawBridge interface code in `lib/` by Robert Smith keeps the
 licensing stated in its file headers (Mozilla Public License 2.0 or GNU GPL version 2 or
 later), compatible with distributing the whole under GPL-3.0.
+
+Waffle ModPlayer uses [Qt 6](https://www.qt.io) (LGPL-3.0, dynamically linked, carried in
+the packages as unmodified libraries) and [libmikmod](https://mikmod.sourceforge.net)
+(LGPL-2.0 or later). Its VU meters and scroller come from WaffleCopyPRO; the Amiga font is
+*Topaz Plus* by dMG of Trueschool and Divine Stylers, freely distributable.
 
 Thanks to Robert Smith for the DrawBridge and DiskFlashback, from which this project
 started, and to RetroGiovedì and Federico Di Dato (Retrobit) for the Waffle: see

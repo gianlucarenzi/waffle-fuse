@@ -2,7 +2,7 @@
 # Screenshots of waffle-fuse on macOS, for the documentation.
 # Runs on a Mac with FUSE-T installed (CI: .github/workflows/screenshots.yml):
 #
-#   docs/screenshots/macos.sh <out dir> "<path of Waffle DiskFlashback.app>"
+#   docs/screenshots/macos.sh <out dir> "<path of Waffle DiskFlashback.app>" ["<path of Waffle ModPlayer.app>"]
 #
 # The menu bar app opens the demo image of docs/examples: mounted under
 # ~/Floppy/<volume name> and shown in the Finder.
@@ -12,6 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$HERE/../.."
 OUT="${1:-$ROOT/docs/images/screenshots}"
 APP="${2:-/Applications/Waffle DiskFlashback.app}"
+PLAYER_APP="${3:-}"
 mkdir -p "$OUT"
 WORK="$(mktemp -d /tmp/shots.XXXXXX)"
 is_mounted() { [ -d "$1" ] && [ "$(/usr/bin/stat -f %d "$1")" != "$(/usr/bin/stat -f %d "$1/..")" ]; }
@@ -41,6 +42,25 @@ shot() {
 }
 shot "$HOME/Floppy/WaffleDemo" macos-finder-amiga.png
 shot "$HOME/Floppy/WAFFLEDOS" macos-finder-dos.png
+
+# Waffle ModPlayer: the module on the Amiga floppy, playing.  The window (with
+# its frame, no shadow) found by its owner through window-id.swift
+if [ -n "$PLAYER_APP" ]; then
+    "$PLAYER_APP/Contents/MacOS/Waffle ModPlayer" --mute --quit-after 40 "$HOME/Floppy/WaffleDemo/Music/waffle.mod" >"$WORK/player.log" 2>&1 &
+    MPPID=$!
+    ID=
+    for _ in $(seq 40); do
+        ID="$(swift "$HERE/window-id.swift" "Waffle ModPlayer" 2>/dev/null)" && [ -n "$ID" ] && break
+        sleep 0.5
+    done
+    if [ -n "$ID" ]; then
+        sleep 6
+        screencapture -x -o -l"$ID" "$OUT/macos-modplayer.png" && echo "saved macos-modplayer.png"
+    else
+        echo "::warning::no ModPlayer window"; cat "$WORK/player.log"
+    fi
+    kill $MPPID 2>/dev/null
+fi
 
 # The menu bar, right side: the app's floppy icon
 W=$(osascript -e 'tell application "Finder" to get item 3 of (get bounds of window of desktop)' 2>/dev/null || echo 1920)

@@ -41,6 +41,7 @@ rm -f "$ROOT/modplayer/resources/waffle-modplayer.icns"
 mv "$BUILD/Waffle ModPlayer.app" "$APP"
 plutil -lint "$APP/Contents/Info.plist"
 
+install -m 644 "$ROOT/modplayer/THIRD-PARTY-NOTICES.txt" "$APP/Contents/Resources/"
 "$QT/bin/macdeployqt" "$APP" -always-overwrite
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"

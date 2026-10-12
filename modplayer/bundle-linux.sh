@@ -79,6 +79,8 @@ while [ -n "$QUEUE" ]; do
     done
 done
 
+install -m 644 "$(dirname "$0")/THIRD-PARTY-NOTICES.txt" "$OUT/"
+
 # Qt finds its plugins through qt.conf, next to the binary
 printf '[Paths]\nPrefix = .\nPlugins = plugins\n' > "$OUT/qt.conf"
 

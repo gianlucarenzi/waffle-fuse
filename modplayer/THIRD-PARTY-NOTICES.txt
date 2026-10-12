@@ -1,0 +1,28 @@
+Waffle ModPlayer - third-party software
+=======================================
+
+Waffle ModPlayer is part of waffle-fuse (GPL-3.0):
+https://github.com/gianlucarenzi/waffle-fuse
+
+Qt 6 (https://www.qt.io)
+  The Qt Company Ltd. and other contributors.
+  Used under the GNU Lesser General Public License version 3 (LGPL-3.0):
+  https://www.gnu.org/licenses/lgpl-3.0.html
+  The Qt libraries are dynamically linked and distributed unmodified, as
+  released by the Qt Project (version 6.8).  You may replace them with another
+  build of Qt 6.  Source code: https://download.qt.io/official_releases/qt/
+  Qt for Linux also carries ICU (Unicode License, https://www.unicode.org/license.txt).
+
+libmikmod 3.3.13 (https://mikmod.sourceforge.net)
+  Miodrag Vallat, Jean-Paul Mikkers, Jake Stine, Frank Loemker, and others.
+  Used under the GNU Library General Public License version 2 or later
+  (LGPL-2.0+): https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html
+  Linked statically; the complete source code of Waffle ModPlayer is available
+  (see above), so it can be relinked with another libmikmod.
+  Source code: https://sourceforge.net/projects/mikmod/files/libmikmod/
+
+Topaz Plus font (TopazPlus_a500_v1.0.ttf)
+  dMG of Trueschool and Divine Stylers; freely distributable.
+
+The VU meters and the sine scroller come from WaffleCopyPRO (GPL-3.0),
+https://github.com/gianlucarenzi/ArduinoFloppyDiskReader
