@@ -8,14 +8,14 @@
 #   <output dir>/waffle-modplayer        RUNPATH $ORIGIN/lib (build it with
 #                                         -DMODPLAYER_BUNDLE=ON)
 #   <output dir>/lib/                     the Qt libraries it needs, ICU, and
-#                                         the small xcb-util libraries that Qt's
-#                                         X11 plugin needs and minimal systems lack
+#                                         the small xcb libraries that Qt's X11
+#                                         plugin needs and many systems lack
 #   <output dir>/plugins/                 platform (X11, Wayland, offscreen),
 #                                         input method and portal plugins
 #   <output dir>/qt.conf                  plugins next to the binary
 #
-# Left to the system, as every desktop has them: glibc, libstdc++, X11/xcb,
-# Wayland, OpenGL/EGL, fontconfig, freetype, GLib, D-Bus, xkbcommon.  libmikmod
+# Left to the system, as every desktop has them: glibc, libstdc++, libX11 and
+# libxcb, Wayland, OpenGL/EGL, fontconfig, freetype, GLib, D-Bus, xkbcommon.  libmikmod
 # is linked statically (build-libmikmod.sh).
 
 set -e
@@ -28,10 +28,13 @@ if [ ! -x "$BIN" ] || [ ! -d "$QT/lib" ] || [ -z "$OUT" ]; then
     exit 1
 fi
 
-# System libraries that are bundled anyway: needed by the Qt X11 plugin and
-# missing on many installations (libxcb-cursor0 above all)
+# System libraries that are bundled anyway: needed by the Qt X11 plugin, each
+# one a package of its own on Debian and Ubuntu, and often missing (libxcb-cursor0
+# and libxcb-shape0 above all).  Small, and stable on top of libxcb.so.1.
 XCB_UTIL="libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1
-          libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0"
+          libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0
+          libxcb-randr.so.0 libxcb-render.so.0 libxcb-shape.so.0 libxcb-shm.so.0
+          libxcb-sync.so.1 libxcb-xfixes.so.0 libxcb-xkb.so.1 libX11-xcb.so.1"
 
 PLUGINS="platforms/libqxcb.so platforms/libqwayland-generic.so platforms/libqwayland-egl.so
          platforms/libqoffscreen.so platforms/libqminimal.so

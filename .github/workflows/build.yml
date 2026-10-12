@@ -94,7 +94,8 @@ jobs:
             libasound2-dev libpulse-dev \
             libgl-dev libegl-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev \
             libglib2.0-0 libdbus-1-3 libx11-xcb1 libxkbcommon-x11-0 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+            libxcb-randr0 libxcb-render0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxcb-xkb1
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -271,32 +272,32 @@ jobs:
               apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
             # What every desktop has, and the bundled Qt of Waffle ModPlayer uses
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Debian 13
             image: debian:13
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Ubuntu 24.04
             image: ubuntu:24.04
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Fedora
             image: fedora:latest
             install: dnf install -y ./pkgs/*.rpm
             remove: dnf remove -y waffle-fuse
-            desktop: dnf install -y mesa-libGL mesa-libEGL fontconfig libxkbcommon glib2 dbus-libs libX11-xcb
+            desktop: dnf install -y mesa-libGL mesa-libEGL fontconfig libxkbcommon glib2 dbus-libs libX11 libxcb libwayland-client libwayland-cursor libwayland-egl
           - name: openSUSE Tumbleweed
             image: opensuse/tumbleweed
             install: zypper --non-interactive install --allow-unsigned-rpm ./pkgs/*.rpm
             remove: zypper --non-interactive remove waffle-fuse
-            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libgthread-2_0-0 libdbus-1-3 libX11-xcb1
+            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libgthread-2_0-0 libdbus-1-3 libX11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Arch Linux
             image: archlinux:latest
             install: pacman -Syu --noconfirm && pacman -U --noconfirm ./pkgs/*.pkg.tar.zst
             remove: pacman -R --noconfirm waffle-fuse
-            desktop: pacman -S --noconfirm libglvnd fontconfig libxkbcommon glib2 dbus libx11
+            desktop: pacman -S --noconfirm libglvnd fontconfig libxkbcommon glib2 dbus libx11 libxcb wayland
           - name: generic archive (Debian 13)
             image: debian:13
             install: |
@@ -305,7 +306,7 @@ jobs:
               sh generic/*/install.sh
               rm -rf generic
             remove: sh /opt/waffle-fuse/install.sh --uninstall
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
 
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -337,7 +338,11 @@ jobs:
         run: |
           ${{ matrix.desktop }}
           /opt/waffle-fuse/waffle-modplayer --version
-          if ldd /opt/waffle-fuse/modplayer/waffle-modplayer | grep 'not found'; then exit 1; fi
+          # The player and its X11 and Wayland plugins: everything but the basic
+          # desktop libraries above comes with it
+          for f in /opt/waffle-fuse/modplayer/waffle-modplayer /opt/waffle-fuse/modplayer/plugins/platforms/*.so; do
+            if ldd "$f" | grep 'not found'; then echo "::error::$f: libraries missing"; exit 1; fi
+          done
           python3 src/docs/examples/make-mod.py /tmp/waffle.mod
           QT_QPA_PLATFORM=offscreen /opt/waffle-fuse/waffle-modplayer --mute --force --quit-after 3 /tmp/waffle.mod
 
