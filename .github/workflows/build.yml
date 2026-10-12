@@ -155,8 +155,8 @@ jobs:
       - name: Install FUSE and the desktop libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fuse3 xdg-utils desktop-file-utils \
-            libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 fonts-dejavu-core
+          sudo apt-get install -y --no-install-recommends fuse3 xdg-utils desktop-file-utils xvfb \
+            libgl1 libegl1 libfontconfig1 libglib2.0-0 libdbus-1-3 libx11-xcb1 fonts-dejavu-core
           sudo chmod 666 /dev/fuse
 
       - name: Download waffle-fuse
@@ -177,6 +177,10 @@ jobs:
           sh packaging/stage.sh waffle-fuse stage modplayer-bundle
           cp -R stage/modplayer stage/waffle-modplayer .
           SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh
+          # On a real X server too (the tests use the offscreen platform)
+          python3 docs/examples/make-mod.py "$RUNNER_TEMP/waffle.mod"
+          QT_QPA_PLATFORM=xcb xvfb-run -a ./waffle-modplayer --mute --force --quit-after 4 "$RUNNER_TEMP/waffle.mod"
+          echo "X11: OK"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -272,27 +276,27 @@ jobs:
               apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
             # What every desktop has, and the bundled Qt of Waffle ModPlayer uses
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libx11-xcb1 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Debian 13
             image: debian:13
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libx11-xcb1 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Ubuntu 24.04
             image: ubuntu:24.04
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libx11-xcb1 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Fedora
             image: fedora:latest
             install: dnf install -y ./pkgs/*.rpm
             remove: dnf remove -y waffle-fuse
-            desktop: dnf install -y mesa-libGL mesa-libEGL fontconfig libxkbcommon glib2 dbus-libs libX11 libxcb libwayland-client libwayland-cursor libwayland-egl
+            desktop: dnf install -y mesa-libGL mesa-libEGL fontconfig libxkbcommon glib2 dbus-libs libX11 libX11-xcb libxcb libwayland-client libwayland-cursor libwayland-egl
           - name: openSUSE Tumbleweed
             image: opensuse/tumbleweed
             install: zypper --non-interactive install --allow-unsigned-rpm ./pkgs/*.rpm
             remove: zypper --non-interactive remove waffle-fuse
-            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libgthread-2_0-0 libdbus-1-3 libX11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
+            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libgthread-2_0-0 libdbus-1-3 libX11-6 libX11-xcb1 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
           - name: Arch Linux
             image: archlinux:latest
             install: pacman -Syu --noconfirm && pacman -U --noconfirm ./pkgs/*.pkg.tar.zst
@@ -306,7 +310,7 @@ jobs:
               sh generic/*/install.sh
               rm -rf generic
             remove: sh /opt/waffle-fuse/install.sh --uninstall
-            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-6 libx11-xcb1 libxcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1
 
     env:
       DEBIAN_FRONTEND: noninteractive

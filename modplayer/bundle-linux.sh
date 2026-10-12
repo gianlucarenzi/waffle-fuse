@@ -14,8 +14,8 @@
 #                                         input method and portal plugins
 #   <output dir>/qt.conf                  plugins next to the binary
 #
-# Left to the system, as every desktop has them: glibc, libstdc++, libX11 and
-# libxcb, Wayland, OpenGL/EGL, fontconfig, freetype, GLib, D-Bus, xkbcommon.  libmikmod
+# Left to the system, as every desktop has them: glibc, libstdc++, libX11,
+# libX11-xcb and libxcb, Wayland, OpenGL/EGL, fontconfig, freetype, GLib, D-Bus.  libmikmod
 # is linked statically (build-libmikmod.sh).  Needs readelf and patchelf.
 
 set -e
@@ -32,11 +32,13 @@ fi
 # one a package of its own on Debian and Ubuntu, and often missing (libxcb-cursor0
 # and libxcb-shape0 above all).  Small, and stable on top of libxcb.so.1.
 XCB_UTIL="libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1
-          libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0
+          libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0 libxkbcommon.so.0
           libxcb-randr.so.0 libxcb-render.so.0 libxcb-shape.so.0 libxcb-shm.so.0
           libxcb-sync.so.1 libxcb-xfixes.so.0 libxcb-xkb.so.1"
-# (not libX11-xcb: it reaches into the internals of libX11, so it must be the
-# one of the system, like libX11 itself)
+# libxkbcommon-x11 uses the internals of libxkbcommon: both come from here, of
+# the same version (they read the keyboard data of the system, a stable format).
+# Not libX11-xcb: it reaches into the internals of libX11, so it must be the
+# one of the system, like libX11 itself.
 
 PLUGINS="platforms/libqxcb.so platforms/libqwayland-generic.so platforms/libqwayland-egl.so
          platforms/libqoffscreen.so platforms/libqminimal.so
