@@ -34,7 +34,9 @@ fi
 XCB_UTIL="libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1
           libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0
           libxcb-randr.so.0 libxcb-render.so.0 libxcb-shape.so.0 libxcb-shm.so.0
-          libxcb-sync.so.1 libxcb-xfixes.so.0 libxcb-xkb.so.1 libX11-xcb.so.1"
+          libxcb-sync.so.1 libxcb-xfixes.so.0 libxcb-xkb.so.1"
+# (not libX11-xcb: it reaches into the internals of libX11, so it must be the
+# one of the system, like libX11 itself)
 
 PLUGINS="platforms/libqxcb.so platforms/libqwayland-generic.so platforms/libqwayland-egl.so
          platforms/libqoffscreen.so platforms/libqminimal.so

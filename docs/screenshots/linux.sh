@@ -74,6 +74,8 @@ if [ -n "$PLAYER" ]; then
         ldd "$(dirname "$PLAYER")/plugins/platforms/libqxcb.so" | grep 'not found'
         QT_DEBUG_PLUGINS=1 timeout 10 "$PLAYER" --mute --quit-after 2 --force "$FLOPPY/WaffleDemo/Music/waffle.mod" 2>&1 |
             grep -iE 'cannot|error|fail|xcb' | head -20
+        command -v gdb >/dev/null && timeout 60 gdb -batch -ex run -ex bt --args \
+            "$(dirname "$PLAYER")/waffle-modplayer" --mute --quit-after 2 --force "$FLOPPY/WaffleDemo/Music/waffle.mod" 2>&1 | tail -30
     fi
     kill $MPPID 2>/dev/null
 fi

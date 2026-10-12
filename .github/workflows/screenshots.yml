@@ -36,7 +36,7 @@ jobs:
             xvfb x11-xserver-utils xdotool imagemagick dbus-x11 at-spi2-core \
             xfwm4 caja stalonetray python3-gi gir1.2-gtk-3.0 libnotify-bin \
             librsvg2-common adwaita-icon-theme fonts-dejavu-core \
-            libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0
+            libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0 gdb
           sudo chmod 666 /dev/fuse
 
       - name: Build waffle-fuse
