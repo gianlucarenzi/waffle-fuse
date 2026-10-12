@@ -303,6 +303,31 @@ else
     bad "automount"; cat "$WORK/auto.log"
 fi
 
+# ── Windows: two disks at once on free drive letters ─────────────────────────
+if [ -n "$WINDOWS" ]; then
+    echo "== two disks at once on free drive letters"
+    "$BIN" --image "$WORK/fat-720.img" '*' -f >"$WORK/l1.log" 2>&1 &
+    P1=$!
+    "$BIN" --image "$WORK/wf-dos-dd.img" '*' -f >"$WORK/l2.log" 2>&1 &
+    P2=$!
+    for _ in $(seq 100); do
+        grep -q "event=mounted" "$WORK/l1.log" && grep -q "event=mounted" "$WORK/l2.log" && break
+        sleep 0.1
+    done
+    L1="$(sed -n 's/^WAFFLE event=mounted mountpoint=//p' "$WORK/l1.log" | tr -d '\r')"
+    L2="$(sed -n 's/^WAFFLE event=mounted mountpoint=//p' "$WORK/l2.log" | tr -d '\r')"
+    if [ -n "$L1" ] && [ -n "$L2" ] && [ "$L1" != "$L2" ]; then
+        ok "mounted on two different letters ($L1 $L2)"
+    else
+        bad "mounted on two different letters (got '$L1' and '$L2')"; cat "$WORK/l1.log" "$WORK/l2.log"
+    fi
+    [ -n "$L1" ] && "$BIN" --unmount "$L1"
+    [ -n "$L2" ] && "$BIN" --unmount "$L2"
+    wait $P1; R1=$?
+    wait $P2; R2=$?
+    [ $R1 -eq 0 ] && [ $R2 -eq 0 ] && ok "both unmounted cleanly" || bad "both unmounted cleanly (exit $R1 $R2)"
+fi
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

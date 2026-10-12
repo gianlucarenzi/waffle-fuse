@@ -24,6 +24,7 @@
 //
 //   WaffleDiskFlashback.exe [image...]   start, or open images in the running app
 //   WaffleDiskFlashback.exe --quit       quit the running app (unmounting first)
+//   WaffleDiskFlashback.exe --menu       open the menu of the running app
 //
 // Settings (HKCU\Software\Waffle\DiskFlashback): MountDir (REG_SZ) mounts disks
 // as <MountDir>\<volume name> instead of drive letters.  Environment:
@@ -665,6 +666,11 @@ public:
             if (a == L"--quit")
             {
                 quit();
+                return;
+            }
+            if (a == L"--menu")
+            {
+                showMenu();
                 return;
             }
             std::wstring ext = extension(a);
@@ -1581,9 +1587,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int)
             for (auto& a : args)
             {
                 std::wstring ext = extension(a);
-                all += (a == L"--quit" || (ext != L"ADF" && ext != L"IMG" && ext != L"IMA") ? a : fullPath(a)) + L"\n";
+                all += (ext != L"ADF" && ext != L"IMG" && ext != L"IMA" ? a : fullPath(a)) + L"\n";
             }
             COPYDATASTRUCT cd = {1, (DWORD)(all.size() * sizeof(wchar_t)), (PVOID)all.c_str()};
+            AllowSetForegroundWindow(ASFW_ANY);     // --menu: the menu takes the focus
             DWORD_PTR result;
             SendMessageTimeoutW(other, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&cd), SMTO_ABORTIFHUNG, 10000, &result);
         }

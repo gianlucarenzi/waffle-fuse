@@ -198,17 +198,9 @@ static bool isDriveLetter(const std::string& p)
 }
 
 // A mountpoint as WinFsp wants it: a drive letter "W:" or an absolute path
-// (of a directory that does not exist yet: WinFsp creates it).  "*" picks the
-// last free drive letter, like WinFsp itself, but here we know which one.
+// (of a directory that does not exist yet: WinFsp creates it)
 static std::string windowsMountpoint(const std::string& mp)
 {
-    if (mp == "*")
-    {
-        DWORD used = GetLogicalDrives();
-        for (char c = 'Z'; c >= 'D'; c--)
-            if (!(used & (1u << (c - 'A')))) return std::string(1, c) + ":";
-        return "";
-    }
     if (isDriveLetter(mp)) return std::string(1, (char)toupper((unsigned char)mp[0])) + ":";
     std::wstring w = toWide(mp);
     wchar_t full[MAX_PATH];
@@ -234,6 +226,54 @@ static std::wstring unmountEventName(const std::string& mountpoint)
     return name;
 }
 
+// The event of the mountpoint (see unmountEventName).  Creating it also claims
+// the mountpoint among waffle-fuse processes: two disks mounted at the same
+// time never pick the same free drive letter or directory.
+static HANDLE g_unmountEvent = nullptr;
+
+static bool claimMountpoint(const std::string& mp)
+{
+    HANDLE ev = CreateEventW(nullptr, TRUE, FALSE, unmountEventName(mp).c_str());
+    if (!ev) return false;
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        CloseHandle(ev);
+        return false;
+    }
+    g_unmountEvent = ev;
+    return true;
+}
+
+// The mountpoint asked for, claimed: "*" picks the last free drive letter (like
+// WinFsp itself, but here we know which one); "" if it cannot be used
+static std::string claimWindowsMountpoint(const std::string& requested)
+{
+    if (requested == "*")
+    {
+        DWORD used = GetLogicalDrives();
+        for (char c = 'Z'; c >= 'D'; c--)
+        {
+            std::string mp = std::string(1, c) + ":";
+            if (!(used & (1u << (c - 'A'))) && claimMountpoint(mp)) return mp;
+        }
+        std::cerr << "waffle-fuse: no free drive letter\n";
+        return "";
+    }
+    std::string mp = windowsMountpoint(requested);
+    if (pathExists(mp))
+    {
+        std::cerr << "waffle-fuse: " << mp << " is in use (WinFsp needs a free drive letter, "
+                  "or a directory that does not exist yet)\n";
+        return "";
+    }
+    if (!claimMountpoint(mp))
+    {
+        std::cerr << "waffle-fuse: another waffle-fuse is mounting a disk on " << mp << "\n";
+        return "";
+    }
+    return mp;
+}
+
 // Pick <base>\<name>, or <name> (2), (3)...: a path that does not exist, as
 // WinFsp creates the directory of the mount (and removes it on unmount)
 static std::string makeAutomountDir(const std::string& base, const std::string& name, bool& created)
@@ -243,8 +283,8 @@ static std::string makeAutomountDir(const std::string& base, const std::string& 
     std::string sep = isSeparator(base.back()) ? "" : "\\";
     for (int n = 1; n < 100; n++)
     {
-        std::string path = base + sep + name + (n > 1 ? " (" + std::to_string(n) + ")" : "");
-        if (!pathExists(path)) return windowsMountpoint(path);
+        std::string path = windowsMountpoint(base + sep + name + (n > 1 ? " (" + std::to_string(n) + ")" : ""));
+        if (!pathExists(path) && claimMountpoint(path)) return path;
     }
     return "";
 }
@@ -1385,10 +1425,9 @@ int main(int argc, char* argv[])
     {
         mountpoint = cmd.mountpoint;
 #ifdef _WIN32
-        mountpoint = windowsMountpoint(mountpoint);
+        mountpoint = claimWindowsMountpoint(mountpoint);
         if (mountpoint.empty())
         {
-            std::cerr << "waffle-fuse: no free drive letter\n";
             emit("error=mount");
             freeFs();
             return EXIT_USAGE;
@@ -1458,9 +1497,10 @@ int main(int argc, char* argv[])
     // WinFsp mounts when the loop below starts: announce the mount once it is
     // really there.  Then wait for `waffle-fuse --unmount` (Ctrl+C is handled
     // by WinFsp itself).
+    // g_unmountEvent is ours (the mountpoint was claimed); loopEnded stops the
+    // watcher when the loop ends for another reason
     std::atomic<bool> loopDone{false}, mounted{false};
-    HANDLE unmountEvent = CreateEventW(nullptr, TRUE, FALSE, unmountEventName(mountpoint).c_str());
-    if (unmountEvent && GetLastError() == ERROR_ALREADY_EXISTS) ResetEvent(unmountEvent);
+    HANDLE loopEnded = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     std::thread watcher([&]
     {
         for (int i = 0; i < 300 && !loopDone && !mounted; i++)     // up to 15 s
@@ -1477,7 +1517,8 @@ int main(int argc, char* argv[])
         }
         std::cerr << "waffle-fuse: mounted on " << mountpoint << "\n";
         emit("event=mounted mountpoint=" + mountpoint);
-        if (unmountEvent) WaitForSingleObject(unmountEvent, INFINITE);
+        HANDLE events[] = {g_unmountEvent, loopEnded};
+        WaitForMultipleObjects(2, events, FALSE, INFINITE);
         if (!loopDone) fuse_exit(g_fuse);
     });
 #endif
@@ -1568,9 +1609,9 @@ int main(int argc, char* argv[])
 
 #ifdef _WIN32
     loopDone = true;
-    if (unmountEvent) SetEvent(unmountEvent);
+    SetEvent(loopEnded);
     watcher.join();
-    if (unmountEvent) CloseHandle(unmountEvent);
+    CloseHandle(loopEnded);
     if (!mounted)
     {
         std::cerr << "waffle-fuse: cannot mount on " << mountpoint << "\n";
@@ -1606,5 +1647,8 @@ int main(int argc, char* argv[])
 
     fuse_opt_free_args(&args);
     free(cmd.mountpoint);
+#ifdef _WIN32
+    CloseHandle(g_unmountEvent);        // the mountpoint is free again
+#endif
     return code;
 }

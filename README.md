@@ -24,9 +24,18 @@ Supported formats (auto-detected, including density):
 | Amiga with DirCache (`DOS4`/`DOS5`) | | read-only |
 | PC 720 KB (DD) / 1.44 MB (HD) | FAT12 (also FAT16), long names VFAT | read + write |
 
-**Download:** [latest release, v1.1.1](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.1):
+**Download:** [latest release, v1.1.2](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.2):
 packages for Linux (deb, rpm, Arch, generic), macOS (app and command line) and Windows
 (installer and zip).
+
+The same floppy (the demo image [`docs/examples/WaffleDemo.adf`](docs/examples)) on the
+three systems:
+
+| Linux (Caja) | macOS (Finder) | Windows (Explorer) |
+|---|---|---|
+| ![An Amiga floppy in Caja](docs/images/screenshots/linux-caja-amiga.png) | ![The same floppy in the Finder](docs/images/screenshots/macos-finder-amiga.png) | ![The same floppy as drive Z: in Explorer](docs/images/screenshots/windows-explorer-amiga.png) |
+
+![How waffle-fuse works: drive, waffle-fuse, FUSE layer, file manager, tray app](docs/images/architecture.svg)
 
 ---
 
@@ -34,8 +43,9 @@ On **macOS** (12 or later, Apple Silicon and Intel) the driver works with
 [FUSE-T](https://www.fuse-t.org), with the **Waffle DiskFlashback** menu bar app (automatic
 mounting, like the Linux tray daemon) or a one-click launcher: see [macOS](#macos).
 
-On **Windows** (10 1903 or later) the command line driver works with
-[WinFsp](https://winfsp.dev): disks and images appear as drive letters, see [Windows](#windows).
+On **Windows** (10 1903 or later) the driver works with [WinFsp](https://winfsp.dev), with
+the **Waffle DiskFlashback** tray app and an installer: disks and images appear as drive
+letters, see [Windows](#windows).
 
 ## Dependencies
 
@@ -103,7 +113,7 @@ If you test it on another combination, the result is useful to add here.
 
 Ready-made packages are attached to each release
 (https://github.com/gianlucarenzi/waffle-fuse/releases; latest:
-[v1.1.1](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.1)).
+[v1.1.2](https://github.com/gianlucarenzi/waffle-fuse/releases/tag/v1.1.2)).
 They are built on Debian 11 and run on **any x86_64 distribution with glibc ≥ 2.31**
 (Debian 11 and later, Ubuntu 20.04 and later, Fedora, openSUSE, Arch...): libfuse3,
 libstdc++ and libgcc are linked into the binary, only glibc comes from the system.
@@ -171,6 +181,8 @@ System Settings → Privacy & Security and click **Open Anyway**, or run
 `xattr -dr com.apple.quarantine "/Applications/Waffle DiskFlashback.app"`. Allow the
 permissions macOS asks for when the first disk is mounted.
 
+<img src="docs/images/screenshots/macos-menu-bar.png" alt="The floppy icon of Waffle DiskFlashback in the macOS menu bar" width="520">
+
 A floppy icon appears in the menu bar: grey while waiting for a disk, orange while reading,
 blue when a disk is mounted. Insert a disk and it is mounted under
 `~/Floppy/<volume name>` and opened in the Finder; take it out and it is unmounted. The
@@ -185,6 +197,8 @@ again, Copy disk to image file…, Write image to disk…), plus **Start at logi
 * **Log**: `~/Library/Logs/WaffleDiskFlashback.log` (driver runs, their messages and exit
   codes); start the app with `WAFFLE_DEBUG=1` in the environment for the FUSE trace.
 * **Driver**: `"/Applications/Waffle DiskFlashback.app/Contents/MacOS/waffle-fuse"`.
+
+![A PC floppy in the Finder, mounted under ~/Floppy/WAFFLEDOS](docs/images/screenshots/macos-finder-dos.png)
 
 #### Command line driver and launcher
 
@@ -261,6 +275,14 @@ Images also open from Explorer (*Open with → Waffle DiskFlashback*, or a doubl
 * `WaffleDiskFlashback.exe --quit` quits the running app; when Windows shuts down it
   unmounts first too.
 
+| Floppies as drives in *This PC* | The tray menu, with two images open |
+|---|---|
+| ![WAFFLEDOS (Y:) and WaffleDemo (Z:) in This PC](docs/images/screenshots/windows-this-pc.png) | ![The tray menu of Waffle DiskFlashback](docs/images/screenshots/windows-tray-menu.png) |
+
+The installer's options:
+
+![Installer: start at login, open .adf images, add to the PATH](docs/images/screenshots/windows-installer-tasks.png)
+
 #### Command line driver
 
 ```bat
@@ -327,6 +349,8 @@ make
 ./scripts/waffle-installer.py        # or double-click waffle-installer.desktop
 ```
 
+![The graphical installer on a Linux desktop](docs/images/screenshots/linux-installer.png)
+
 The graphical installer (GTK; designed for X11 and Wayland, for any desktop and for Debian,
 Arch, Fedora and openSUSE: see Compatibility for what has been tested) checks dependencies
 and suggests missing packages for your distribution, compiles waffle-fuse if needed, then:
@@ -351,6 +375,12 @@ without it. Without tray the daemon still works, with notifications only.
 
 ### The tray menu
 
+![The tray menu on Linux (no drive connected: waiting for the DrawBridge)](docs/images/screenshots/linux-tray-menu.png)
+
+The icon follows the state of the drive (the same on Linux, macOS and Windows):
+
+![Tray states: no port, waiting, mounting, mounted, ejecting, remove, busy](docs/images/tray-states.svg)
+
 | Menu item | What it does |
 |---|---|
 | **Open** | opens the mounted disk in the file manager (also with a click on the icon) |
@@ -367,6 +397,10 @@ never in the middle of a track. The copy is done in a temporary file (`….part`
 only at the end: cancelling doesn't lose a file being overwritten.
 
 ### Floppy images as virtual disks
+
+To try without a drive, two small demo images are in [`docs/examples`](docs/examples):
+`WaffleDemo.adf` (Amiga 880K, FFS) and `WAFFLEDOS.img` (PC 720K, FAT12), with a few files
+and folders (`docs/examples/make-examples.sh` builds them with waffle-fuse itself).
 
 With double-click on an `.adf`, `.img` or `.ima` image (`scripts/waffle-open-image.py`):
 
@@ -596,6 +630,16 @@ disk. Close them and try again.
 
 **Disk recognized incorrectly**: force format and density, for example
 `-o format=affs,density=dd`.
+
+---
+
+## Screenshots
+
+The pictures in this README are taken by the *Screenshots* workflow
+(`.github/workflows/screenshots.yml`, scripts in `docs/screenshots/`) on the Linux, macOS
+and Windows desktops of the GitHub runners, with the demo images of `docs/examples`: run it
+from the Actions tab and commit the PNG files of its `screenshots` artifact to
+`docs/images/screenshots/`.
 
 ---
 
