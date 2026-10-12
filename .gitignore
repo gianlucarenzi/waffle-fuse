@@ -5,6 +5,9 @@ lib/*.o
 lib/*.d
 waffle-fuse
 src/icons_embedded.h
+waffle-modplayer
+waffle-modplayer.exe
+modplayer/build/
 
 # Mountpoint (empty dir kept via .gitkeep)
 mountpoint/*

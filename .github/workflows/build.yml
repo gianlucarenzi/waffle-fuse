@@ -70,9 +70,123 @@ jobs:
           path: waffle-fuse
           if-no-files-found: error
 
+  build-modplayer-linux:
+    name: Waffle ModPlayer for Linux (Qt 6.8 bundled)
+    # Debian 11 container, as waffle-fuse: the player and the official Qt 6.8
+    # binaries (built for glibc 2.28) run on Debian 11 and every newer system.
+    runs-on: ubuntu-latest
+    container: debian:11
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      QT_VERSION: '6.8.3'
+      MAX_GLIBC: '2.31'
+
+    steps:
+      - name: Install dependencies
+        run: |
+          find /etc/apt -name '*.list' -o -name '*.sources' | \
+            xargs sed -i 's|http://deb.debian.org|http://archive.debian.org|g'
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config curl ca-certificates git \
+            python3 python3-pip python3-venv \
+            libasound2-dev libpulse-dev \
+            libgl-dev libegl-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev \
+            libglib2.0-0 libdbus-1-3 libx11-xcb1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        run: |
+          python3 -m venv /opt/aqt
+          /opt/aqt/bin/pip install -q aqtinstall
+          /opt/aqt/bin/aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O /opt/Qt \
+            --archives qtbase qtwayland icu
+          echo "QT_DIR=/opt/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Build libmikmod (static)
+        run: sh modplayer/build-libmikmod.sh /opt/mikmod
+
+      - name: Build Waffle ModPlayer
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
+            *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
+          esac
+          PKG_CONFIG_PATH=/opt/mikmod/lib/pkgconfig cmake -S modplayer -B build-modplayer \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_DIR" \
+            -DMIKMOD_STATIC=ON -DMODPLAYER_BUNDLE=ON -DWAFFLE_VERSION="$VERSION"
+          cmake --build build-modplayer --parallel
+          strip build-modplayer/waffle-modplayer
+
+      - name: Bundle Qt
+        run: |
+          sh modplayer/bundle-linux.sh build-modplayer/waffle-modplayer "$QT_DIR" modplayer-bundle
+          NEED=$(find modplayer-bundle -type f \( -name '*.so*' -o -name waffle-modplayer \) -exec objdump -T {} + 2>/dev/null |
+                 grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+          echo "--- Highest glibc version required: $NEED (max allowed: $MAX_GLIBC)"
+          if [ "$(printf '%s\n%s\n' "$NEED" "$MAX_GLIBC" | sort -V | tail -1)" != "$MAX_GLIBC" ]; then
+            echo "::error::the ModPlayer bundle requires glibc $NEED"
+            exit 1
+          fi
+          if ldd modplayer-bundle/waffle-modplayer | grep 'not found'; then exit 1; fi
+          modplayer-bundle/waffle-modplayer --version
+          tar -C modplayer-bundle -cf modplayer-bundle.tar .
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: waffle-modplayer-linux-x86_64
+          path: modplayer-bundle.tar
+          if-no-files-found: error
+
+  test-modplayer-linux:
+    name: Test Waffle ModPlayer on Linux (waffle-fuse disks)
+    needs: [build, build-modplayer-linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install FUSE and the desktop libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fuse3 xdg-utils desktop-file-utils \
+            libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 fonts-dejavu-core
+          sudo chmod 666 /dev/fuse
+
+      - name: Download waffle-fuse
+        uses: actions/download-artifact@v4
+        with:
+          name: waffle-fuse-linux-x86_64
+
+      - name: Download the ModPlayer bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: waffle-modplayer-linux-x86_64
+
+      - name: Test (as installed by the packages)
+        run: |
+          chmod +x waffle-fuse
+          mkdir modplayer-bundle && tar -C modplayer-bundle -xf modplayer-bundle.tar
+          # The packaged layout: waffle-modplayer launcher, the bundle in modplayer/
+          sh packaging/stage.sh waffle-fuse stage modplayer-bundle
+          cp -R stage/modplayer stage/waffle-modplayer .
+          SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modplayer-screenshots-linux
+          path: ${{ runner.temp }}/shots/*.png
+          if-no-files-found: ignore
+
   package:
     name: Packages (deb, rpm, Arch, generic)
-    needs: build
+    needs: [build, build-modplayer-linux]
     runs-on: ubuntu-latest
 
     env:
@@ -86,6 +200,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: waffle-fuse-linux-x86_64
+          path: bin
+
+      - name: Download the ModPlayer bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: waffle-modplayer-linux-x86_64
           path: bin
 
       - name: Package version
@@ -111,7 +231,8 @@ jobs:
       - name: Build packages
         run: |
           chmod +x bin/waffle-fuse      # artifacts lose the executable bit
-          sh packaging/stage.sh bin/waffle-fuse stage/waffle-fuse
+          mkdir bin/modplayer && tar -C bin/modplayer -xf bin/modplayer-bundle.tar
+          sh packaging/stage.sh bin/waffle-fuse stage/waffle-fuse bin/modplayer
           mkdir -p dist
           for p in deb rpm archlinux; do
             nfpm package -f packaging/nfpm.yaml -p "$p" -t dist/
@@ -149,26 +270,33 @@ jobs:
               apt-get -o Acquire::Check-Valid-Until=false update
               apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
+            # What every desktop has, and the bundled Qt of Waffle ModPlayer uses
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
           - name: Debian 13
             image: debian:13
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
           - name: Ubuntu 24.04
             image: ubuntu:24.04
             install: apt-get update && apt-get install -y ./pkgs/*.deb
             remove: apt-get remove -y waffle-fuse
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
           - name: Fedora
             image: fedora:latest
             install: dnf install -y ./pkgs/*.rpm
             remove: dnf remove -y waffle-fuse
+            desktop: dnf install -y mesa-libGL mesa-libEGL fontconfig libxkbcommon glib2 dbus-libs libX11-xcb
           - name: openSUSE Tumbleweed
             image: opensuse/tumbleweed
             install: zypper --non-interactive install --allow-unsigned-rpm ./pkgs/*.rpm
             remove: zypper --non-interactive remove waffle-fuse
+            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libdbus-1-3 libX11-xcb1
           - name: Arch Linux
             image: archlinux:latest
             install: pacman -Syu --noconfirm && pacman -U --noconfirm ./pkgs/*.pkg.tar.zst
             remove: pacman -R --noconfirm waffle-fuse
+            desktop: pacman -S --noconfirm libglvnd fontconfig libxkbcommon glib2 dbus libx11
           - name: generic archive (Debian 13)
             image: debian:13
             install: |
@@ -177,6 +305,7 @@ jobs:
               sh generic/*/install.sh
               rm -rf generic
             remove: sh /opt/waffle-fuse/install.sh --uninstall
+            desktop: apt-get install -y --no-install-recommends libgl1 libegl1 libfontconfig1 libxkbcommon0 libglib2.0-0 libdbus-1-3 libx11-xcb1 libxcb1
 
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -198,6 +327,19 @@ jobs:
           command -v waffle-installer
           python3 -c "import gi; gi.require_version('Gtk', '3.0')"
           command -v fusermount3
+
+      - name: Checkout code (demo module)
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Check Waffle ModPlayer (its own Qt, no Qt on the system)
+        run: |
+          ${{ matrix.desktop }}
+          /opt/waffle-fuse/waffle-modplayer --version
+          if ldd /opt/waffle-fuse/modplayer/waffle-modplayer | grep 'not found'; then exit 1; fi
+          python3 src/docs/examples/make-mod.py /tmp/waffle.mod
+          QT_QPA_PLATFORM=offscreen /opt/waffle-fuse/waffle-modplayer --mute --force --quit-after 3 /tmp/waffle.mod
 
       - name: Remove
         run: ${{ matrix.remove }}
