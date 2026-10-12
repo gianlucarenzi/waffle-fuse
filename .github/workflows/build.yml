@@ -11,7 +11,7 @@ jobs:
     name: Build on Debian 11 (glibc 2.31)
     # GitHub-hosted runner, build inside a Debian 11 container: the binary links
     # against glibc 2.31 and runs on Debian 11 and every newer distribution.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: debian:11
 
     env:
@@ -35,7 +35,7 @@ jobs:
             ca-certificates
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build waffle-fuse
         # Only glibc stays dynamic. libfuse3 is linked statically because its
@@ -64,7 +64,7 @@ jobs:
           ./waffle-fuse --help | head -3
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: waffle-fuse-linux-x86_64
           path: waffle-fuse
@@ -74,7 +74,7 @@ jobs:
     name: Waffle ModPlayer for Linux (Qt 6.8 bundled)
     # Debian 11 container, as waffle-fuse: the player and the official Qt 6.8
     # binaries (built for glibc 2.28) run on Debian 11 and every newer system.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: debian:11
 
     env:
@@ -98,7 +98,7 @@ jobs:
             libxcb-randr0 libxcb-render0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxcb-xkb1
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Qt ${{ env.QT_VERSION }}
         run: |
@@ -138,7 +138,7 @@ jobs:
           tar -C modplayer-bundle -cf modplayer-bundle.tar .
 
       - name: Upload bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: waffle-modplayer-linux-x86_64
           path: modplayer-bundle.tar
@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install FUSE and the desktop libraries
         run: |
@@ -160,12 +160,12 @@ jobs:
           sudo chmod 666 /dev/fuse
 
       - name: Download waffle-fuse
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-fuse-linux-x86_64
 
       - name: Download the ModPlayer bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-modplayer-linux-x86_64
 
@@ -182,7 +182,7 @@ jobs:
           QT_QPA_PLATFORM=xcb xvfb-run -a ./waffle-modplayer --mute --force --quit-after 4 "$RUNNER_TEMP/waffle.mod"
           echo "X11: OK"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: modplayer-screenshots-linux
@@ -192,23 +192,23 @@ jobs:
   package:
     name: Packages (deb, rpm, Arch, generic)
     needs: [build, build-modplayer-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     env:
       NFPM_VERSION: '2.47.0'
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-fuse-linux-x86_64
           path: bin
 
       - name: Download the ModPlayer bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-modplayer-linux-x86_64
           path: bin
@@ -252,7 +252,7 @@ jobs:
           ls -l dist
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: waffle-fuse-packages
           path: dist/*
@@ -261,7 +261,7 @@ jobs:
   test-install:
     name: Install on ${{ matrix.name }}
     needs: package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
@@ -317,7 +317,7 @@ jobs:
 
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-fuse-packages
           path: pkgs
@@ -334,7 +334,7 @@ jobs:
           command -v fusermount3
 
       - name: Checkout code (demo module)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: src
 
@@ -373,7 +373,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install FUSE-T and test tools
         run: |
@@ -443,7 +443,7 @@ jobs:
         timeout-minutes: 5
         run: SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh "$PWD/dist/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: modplayer-screenshots-macos
@@ -526,7 +526,7 @@ jobs:
           ls -l dist
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: waffle-fuse-packages-macos
           path: |
@@ -546,7 +546,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install FUSE-T
         run: |
@@ -556,7 +556,7 @@ jobs:
           sudo installer -pkg "$PKG" -target /
 
       - name: Download the disk image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: waffle-fuse-packages-macos
           path: dist
@@ -572,7 +572,7 @@ jobs:
           ./waffle-fuse --help | head -2
           SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh "$RUNNER_TEMP/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: modplayer-screenshots-macos-intel
@@ -595,7 +595,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install WinFsp (with the developer files)
         shell: pwsh
@@ -716,7 +716,7 @@ jobs:
         timeout-minutes: 5
         run: SHOT_DIR="$(cygpath -u "$RUNNER_TEMP")/shots" bash tests/test-modplayer.sh "$PWD/dist-modplayer/waffle-modplayer.exe"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: modplayer-screenshots-windows
@@ -790,7 +790,7 @@ jobs:
           Write-Host "installer: OK"
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: waffle-fuse-packages-windows
           path: |
@@ -802,20 +802,20 @@ jobs:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [package, test-install, test-modplayer-linux, build-macos, test-macos-intel, build-windows]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: waffle-fuse-packages*
           merge-multiple: true
           path: pkgs
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: pkgs/*
           generate_release_notes: true
