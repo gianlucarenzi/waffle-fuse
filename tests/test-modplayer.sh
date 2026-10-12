@@ -109,14 +109,17 @@ if [ -n "$WINDOWS" ]; then
         sleep 0.1
     done
     if [ -n "$L" ]; then
+        mkdir -p "$L/Music"
         cp "$WORK/waffle.mod" "$L/waffle.mod"
-        echo "       file system of $L: $(powershell -NoProfile -Command "([IO.DriveInfo]'$L').DriveFormat" | tr -d '\r')"
-        if out="$("$PLAYER" --is-waffle "$L/waffle.mod" 2>&1)"; then
-            ok "recognised on $L ($(echo "$out" | tr -d '\r'))"
-        else
-            bad "not recognised on $L"
-            WAFFLE_MODPLAYER_DEBUG=1 "$PLAYER" --is-waffle "$L/waffle.mod" 2>&1 | sed 's/^/       /'
-        fi
+        cp "$WORK/waffle.mod" "$L/Music/waffle.mod"
+        for f in "$L/waffle.mod" "$L/Music/waffle.mod"; do
+            if out="$(WAFFLE_MODPLAYER_DEBUG=1 "$PLAYER" --is-waffle "$f" 2>&1)"; then
+                ok "recognised: $f"
+            else
+                bad "not recognised: $f"
+            fi
+            echo "$out" | tr -d '\r' | sed 's/^/       /'
+        done
         "$BIN" --unmount "$L"
     else
         bad "no drive letter"; cat "$WORK/letter.log"
