@@ -2,7 +2,9 @@
 
 A FUSE userspace driver for the **DrawBridge / Waffle** floppy reader on Arduino.
 (The Arduino firmware and the WaffleCopyPRO application are in
-[ArduinoFloppyDiskReader](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader).)
+[ArduinoFloppyDiskReader](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader), the
+application in
+[waffleCopyPRO-Universal](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader/tree/master/waffleCopyPRO-Universal).)
 Makes the drive behave like an Amiga drive on the Linux desktop:
 
 * **insert a disk** → it mounts automatically in `/media/$USER/<volume name>` (or
@@ -46,6 +48,40 @@ mounting, like the Linux tray daemon) or a one-click launcher: see [macOS](#maco
 On **Windows** (10 1903 or later) the driver works with [WinFsp](https://winfsp.dev), with
 the **Waffle DiskFlashback** tray app and an installer: disks and images appear as drive
 letters, see [Windows](#windows).
+
+## Origins and thanks
+
+waffle-fuse starts from an idea of **Robert Smith** ([@RobSmithDev](https://github.com/RobSmithDev),
+[robsmithdev.co.uk](https://robsmithdev.co.uk)):
+
+* the **DrawBridge**, his Arduino floppy disk reader and writer
+  ([amiga.robsmithdev.co.uk](https://amiga.robsmithdev.co.uk),
+  [RobSmithDev/ArduinoFloppyDiskReader](https://github.com/RobSmithDev/ArduinoFloppyDiskReader)),
+  is the hardware this driver talks to;
+* **DiskFlashback**, his Windows application that mounts real floppies and disk images as
+  drives ([robsmithdev.co.uk/diskflashback](https://robsmithdev.co.uk/diskflashback),
+  [RobSmithDev/DiskFlashback](https://github.com/RobSmithDev/DiskFlashback)), is the model
+  for what waffle-fuse does on Linux, macOS and Windows, and the reason the tray apps are
+  called **Waffle DiskFlashback**. What each one does: [waffle-fuse and DiskFlashback
+  compared](docs/comparison.md).
+
+From his work came the Waffle projects by Gianluca Renzi
+([@gianlucarenzi](https://github.com/gianlucarenzi)):
+**WaffleCopyPRO**, the copy application for the DrawBridge / Waffle drive
+([waffleCopyPRO-Universal](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader/tree/master/waffleCopyPRO-Universal),
+in [gianlucarenzi/ArduinoFloppyDiskReader](https://github.com/gianlucarenzi/ArduinoFloppyDiskReader)
+with the Arduino firmware), and this project, which brings the DiskFlashback idea to every
+desktop.
+
+A heartfelt thank you to Robert for designing the DrawBridge, for releasing it, DiskFlashback
+and their code as open source, and for years of work that keep real Amiga floppies alive on
+modern computers. His DrawBridge interface code is still at the heart of waffle-fuse
+(`lib/`, see [License](#license)): without it this project would not exist.
+
+Many thanks also to the people of **RetroGiovedì** ([retrogiovedi.it](https://retrogiovedi.it))
+and to **Federico Di Dato** of **Retrobit**, who believed in the Waffle from the start: the
+Waffle was born with them, and thanks to them it became a product on sale for the retro
+computing community ([the Waffle at RetroGiovedì](https://retrogiovedi.it/prodotto/waffle/)).
 
 ## Dependencies
 
@@ -689,3 +725,7 @@ waffle-fuse is distributed under the GNU General Public License version 3 (GPL-3
 [LICENSE](LICENSE). The DrawBridge interface code in `lib/` by Robert Smith keeps the
 licensing stated in its file headers (Mozilla Public License 2.0 or GNU GPL version 2 or
 later), compatible with distributing the whole under GPL-3.0.
+
+Thanks to Robert Smith for the DrawBridge and DiskFlashback, from which this project
+started, and to RetroGiovedì and Federico Di Dato (Retrobit) for the Waffle: see
+[Origins and thanks](#origins-and-thanks).
