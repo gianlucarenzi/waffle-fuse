@@ -8,8 +8,7 @@
 #   modplayer/build-libmikmod.sh <install prefix> [cmake options...]
 #
 # e.g. -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
-# Then: make modplayer MODPLAYER_CMAKE_FLAGS="-DMIKMOD_STATIC=ON" with
-# PKG_CONFIG_PATH=<install prefix>/lib/pkgconfig
+# Then: make modplayer MODPLAYER_CMAKE_FLAGS="-DMIKMOD_ROOT=<install prefix>"
 
 set -e
 
@@ -23,6 +22,9 @@ shift
 mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"
 
+# Windows (Git Bash, MSYS2): a native cmake wants Windows paths
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else echo "$1"; fi; }
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 curl -sSL --retry 3 -o "$WORK/libmikmod.tar.gz" "$URL"
@@ -33,15 +35,15 @@ else
 fi
 tar -C "$WORK" -xzf "$WORK/libmikmod.tar.gz"
 
-cmake -S "$WORK/libmikmod-$VERSION" -B "$WORK/build" \
+cmake -S "$(native "$WORK/libmikmod-$VERSION")" -B "$(native "$WORK/build")" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    -DCMAKE_INSTALL_PREFIX="$(native "$PREFIX")" \
     -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
     -DENABLE_OPENAL=OFF -DENABLE_SDL=OFF -DENABLE_ESD=OFF -DENABLE_NAS=OFF \
     -DENABLE_DOC=OFF \
     "$@"
-cmake --build "$WORK/build" --parallel
-cmake --install "$WORK/build"
+cmake --build "$(native "$WORK/build")" --parallel
+cmake --install "$(native "$WORK/build")"
 echo "libmikmod $VERSION (static) installed in $PREFIX"

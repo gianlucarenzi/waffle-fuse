@@ -116,9 +116,9 @@ jobs:
             refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
             *) VERSION="0.0.0.dev${GITHUB_RUN_NUMBER}" ;;
           esac
-          PKG_CONFIG_PATH=/opt/mikmod/lib/pkgconfig cmake -S modplayer -B build-modplayer \
+          cmake -S modplayer -B build-modplayer \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_DIR" \
-            -DMIKMOD_STATIC=ON -DMODPLAYER_BUNDLE=ON -DWAFFLE_VERSION="$VERSION"
+            -DMIKMOD_ROOT=/opt/mikmod -DMODPLAYER_BUNDLE=ON -DWAFFLE_VERSION="$VERSION"
           cmake --build build-modplayer --parallel
           strip build-modplayer/waffle-modplayer
 
@@ -291,7 +291,7 @@ jobs:
             image: opensuse/tumbleweed
             install: zypper --non-interactive install --allow-unsigned-rpm ./pkgs/*.rpm
             remove: zypper --non-interactive remove waffle-fuse
-            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libdbus-1-3 libX11-xcb1
+            desktop: zypper --non-interactive install Mesa-libGL1 Mesa-libEGL1 fontconfig libxkbcommon0 libglib-2_0-0 libgthread-2_0-0 libdbus-1-3 libX11-xcb1
           - name: Arch Linux
             image: archlinux:latest
             install: pacman -Syu --noconfirm && pacman -U --noconfirm ./pkgs/*.pkg.tar.zst
@@ -419,6 +419,28 @@ jobs:
       - name: Build the menu bar app
         run: macos/build-app.sh "$VERSION" dist
 
+      - name: Build Waffle ModPlayer (Qt 6.8, universal)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/aqt"
+          "$RUNNER_TEMP/aqt/bin/pip" install -q aqtinstall
+          "$RUNNER_TEMP/aqt/bin/aqt" install-qt mac desktop 6.8.3 clang_64 -O "$RUNNER_TEMP/Qt" --archives qtbase
+          sh modplayer/build-libmikmod.sh "$RUNNER_TEMP/mikmod" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN"
+          macos/build-modplayer-app.sh "$VERSION" "$RUNNER_TEMP/Qt/6.8.3/macos" "$RUNNER_TEMP/mikmod" dist
+          lipo -info "dist/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer" | grep -q 'x86_64 arm64'
+          otool -L "dist/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer"
+
+      - name: Test Waffle ModPlayer (modules on waffle-fuse disks)
+        timeout-minutes: 5
+        run: SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh "$PWD/dist/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modplayer-screenshots-macos
+          path: ${{ runner.temp }}/shots/*.png
+          if-no-files-found: ignore
+
       - name: Test the app (open an image, write to it, quit)
         timeout-minutes: 8
         run: |
@@ -484,11 +506,13 @@ jobs:
           install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
-          macos/make-dmg.sh "dist/Waffle DiskFlashback.app" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
-          # The disk image opens and holds the app
+          macos/make-dmg.sh "dist/Waffle DiskFlashback.app" "dist/Waffle-DiskFlashback-${VERSION}.dmg" \
+            "dist/Waffle ModPlayer.app"
+          # The disk image opens and holds the apps
           hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
           ls -l "$RUNNER_TEMP/dmg"
           codesign --verify --strict "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/dmg/Waffle ModPlayer.app"
           hdiutil detach "$RUNNER_TEMP/dmg"
           ls -l dist
 
@@ -500,6 +524,51 @@ jobs:
             dist/*.tar.gz
             dist/*.dmg
           if-no-files-found: error
+
+  test-macos-intel:
+    name: Test on macOS Intel (the x86_64 half of the universal apps)
+    needs: build-macos
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+
+    env:
+      FUSE_T_VERSION: '1.2.9'
+      FUSE_T_SHA256: a1b893740ded8ea034f1acc522ded1144f4a567a1f416daef8c1441cf2662f7f
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install FUSE-T
+        run: |
+          PKG="$RUNNER_TEMP/fuse-t.pkg"
+          curl -sSL -o "$PKG" "https://github.com/macos-fuse-t/fuse-t/releases/download/${FUSE_T_VERSION}/fuse-t-macos-installer-${FUSE_T_VERSION}.pkg"
+          echo "$FUSE_T_SHA256  $PKG" | shasum -a 256 -c -
+          sudo installer -pkg "$PKG" -target /
+
+      - name: Download the disk image
+        uses: actions/download-artifact@v4
+        with:
+          name: waffle-fuse-packages-macos
+          path: dist
+
+      - name: Test the apps of the disk image
+        run: |
+          uname -m
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" dist/*.dmg
+          cp -R "$RUNNER_TEMP/dmg/Waffle DiskFlashback.app" "$RUNNER_TEMP/dmg/Waffle ModPlayer.app" "$RUNNER_TEMP/"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+          # waffle-fuse from inside the menu bar app, as installed
+          cp "$RUNNER_TEMP/Waffle DiskFlashback.app/Contents/MacOS/waffle-fuse" .
+          ./waffle-fuse --help | head -2
+          SHOT_DIR="$RUNNER_TEMP/shots" bash tests/test-modplayer.sh "$RUNNER_TEMP/Waffle ModPlayer.app/Contents/MacOS/Waffle ModPlayer"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modplayer-screenshots-macos-intel
+          path: ${{ runner.temp }}/shots/*.png
+          if-no-files-found: ignore
 
   build-windows:
     name: Build on Windows (MinGW-w64, WinFsp)
@@ -606,12 +675,51 @@ jobs:
           esac
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Build Waffle ModPlayer (Qt 6.8, MinGW)
+        # The official Qt 6.8 for MinGW with its own compiler (MinGW 13.1);
+        # windeployqt puts the Qt DLLs, plugins and MinGW runtime in ModPlayer\
+        shell: bash
+        run: |
+          T="$(cygpath -u "$RUNNER_TEMP")"
+          python -m venv "$T/aqt"
+          AQT="$T/aqt/Scripts/aqt"
+          "$T/aqt/Scripts/pip" install -q aqtinstall
+          "$AQT" install-qt windows desktop 6.8.3 win64_mingw -O "$T/Qt" --archives qtbase
+          "$AQT" install-tool windows desktop tools_mingw1310 qt.tools.win64_mingw1310 -O "$T/Qt"
+          "$AQT" install-tool windows desktop tools_ninja qt.tools.ninja -O "$T/Qt"
+          export PATH="$T/Qt/Tools/mingw1310_64/bin:$T/Qt/Tools/Ninja:$PATH"
+          GEN="-G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++"
+          sh modplayer/build-libmikmod.sh "$T/mikmod" $GEN
+          cmake -S modplayer -B build-modplayer $GEN -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(cygpath -m "$T/Qt/6.8.3/mingw_64")" \
+            -DMIKMOD_ROOT="$(cygpath -m "$T/mikmod")" -DWAFFLE_VERSION="$VERSION"
+          cmake --build build-modplayer --parallel
+          mkdir -p ModPlayer
+          cp build-modplayer/waffle-modplayer.exe ModPlayer/
+          strip ModPlayer/waffle-modplayer.exe
+          "$T/Qt/6.8.3/mingw_64/bin/windeployqt.exe" --release --no-translations \
+            --no-system-d3d-compiler --no-opengl-sw --compiler-runtime ModPlayer/waffle-modplayer.exe
+          find ModPlayer -type f | sort
+          du -sh ModPlayer
+
+      - name: Test Waffle ModPlayer (modules on waffle-fuse disks)
+        timeout-minutes: 5
+        run: SHOT_DIR="$(cygpath -u "$RUNNER_TEMP")/shots" bash tests/test-modplayer.sh "$PWD/ModPlayer/waffle-modplayer.exe"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modplayer-screenshots-windows
+          path: ${{ runner.temp }}/shots/*.png
+          if-no-files-found: ignore
+
       - name: Package
         shell: pwsh
         run: |
           $name = "waffle-fuse-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "dist\$name" | Out-Null
           Copy-Item WaffleDiskFlashback.exe, waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
+          Copy-Item -Recurse ModPlayer "dist\$name\ModPlayer"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
@@ -649,6 +757,13 @@ jobs:
           & "$app\waffle-fuse.exe" --help 2>&1 | Select-Object -First 3
           if (-not (Test-Path "$app\WaffleDiskFlashback.exe")) { throw "WaffleDiskFlashback.exe not installed" }
           if ((Get-ItemProperty 'Registry::HKEY_CLASSES_ROOT\Waffle.FloppyImage\shell\open\command').'(default)' -notlike '*WaffleDiskFlashback.exe*') { throw "image association missing" }
+          # Waffle ModPlayer with its Qt, registered for .mod files, and it runs
+          if (-not (Test-Path "$app\ModPlayer\waffle-modplayer.exe")) { throw "Waffle ModPlayer not installed" }
+          if (-not (Test-Path "$app\ModPlayer\platforms\qwindows.dll")) { throw "the Qt platform plugin is missing" }
+          if ((Get-ItemProperty 'Registry::HKEY_CLASSES_ROOT\Waffle.Module\shell\open\command').'(default)' -notlike '*waffle-modplayer.exe*') { throw "module association missing" }
+          python docs/examples/make-mod.py "$env:RUNNER_TEMP\waffle.mod"
+          $p = Start-Process "$app\ModPlayer\waffle-modplayer.exe" -ArgumentList '--mute', '--force', '--quit-after', '3', "$env:RUNNER_TEMP\waffle.mod" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Waffle ModPlayer failed: $($p.ExitCode)" }
           $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
           if (-not ($path.Split(';') -contains $app)) { throw "not added to the PATH: $path" }
           $p = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
@@ -657,6 +772,7 @@ jobs:
           function OnPath { [Environment]::GetEnvironmentVariable('Path', 'Machine').Split(';') -contains $app }
           for ($i = 0; $i -lt 30 -and ((Test-Path "$app\waffle-fuse.exe") -or (OnPath)); $i++) { Start-Sleep 1 }
           if (Test-Path "$app\waffle-fuse.exe") { throw "still installed after the uninstall" }
+          if (Test-Path "$app\ModPlayer") { throw "Waffle ModPlayer still installed after the uninstall" }
           if (OnPath) { throw "still on the PATH after the uninstall" }
           # A 64-bit installer (PE32+, machine AMD64)
           $b = [IO.File]::ReadAllBytes($setup); $pe = [BitConverter]::ToInt32($b, 0x3C)
@@ -675,7 +791,7 @@ jobs:
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, test-install, build-macos, build-windows]
+    needs: [package, test-install, test-modplayer-linux, build-macos, test-macos-intel, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
