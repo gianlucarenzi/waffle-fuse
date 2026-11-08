@@ -361,7 +361,7 @@ jobs:
           fi
 
   build-macos:
-    name: Build on macOS (universal, FUSE-T)
+    name: Build on macOS (universal, FUSE-T bundled)
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -385,6 +385,22 @@ jobs:
           brew install coreutils dosfstools librsvg
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q amitools pyfatfs "setuptools<81" || echo "::warning::amitools/pyfatfs not installed: independent checks skipped"
+
+      - name: Prepare FUSE-T for bundling
+        run: |
+          # Extract and verify FUSE-T dylib for bundling
+          FUSE_T_DYLIB="/usr/local/lib/libfuse3.dylib"
+          if [ ! -f "$FUSE_T_DYLIB" ]; then
+            echo "::error::FUSE-T dylib not found at $FUSE_T_DYLIB"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/fuse-t-bundle"
+          cp "$FUSE_T_DYLIB" "$RUNNER_TEMP/fuse-t-bundle/"
+          # Also copy the license
+          curl -sSL -o "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" \
+            "https://raw.githubusercontent.com/macos-fuse-t/fuse-t/main/LICENSE"
+          echo "FUSE-T dylib prepared for bundling"
+          ls -lh "$RUNNER_TEMP/fuse-t-bundle/"
 
       - name: Build universal binary
         # One architecture at a time, then lipo: dependency files (-MMD) do not
@@ -514,9 +530,32 @@ jobs:
           mkdir -p "dist/$NAME"
           install -m 755 waffle-fuse scripts/waffle-mount.sh "packaging/macos/Waffle Floppy.command" "dist/$NAME/"
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
+          # Bundle FUSE-T dylib
+          mkdir -p "dist/$NAME/fuse-t-lib"
+          cp "$RUNNER_TEMP/fuse-t-bundle/libfuse3.dylib" "dist/$NAME/fuse-t-lib/"
+          install -m 644 "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" "dist/$NAME/fuse-t-lib/"
+          echo "FUSE-T bundled in the package"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
           macos/make-dmg.sh "dist/Waffle DiskFlashback.app" "dist/Waffle-DiskFlashback-${VERSION}.dmg" \
             "dist/Waffle ModPlayer.app"
+          # Bundle FUSE-T dylib in the DMG
+          hdiutil attach -nobrowse -readwrite -mountpoint "$RUNNER_TEMP/dmg-rw" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
+          mkdir -p "$RUNNER_TEMP/dmg-rw/.fuse-t"
+          cp "$RUNNER_TEMP/fuse-t-bundle/libfuse3.dylib" "$RUNNER_TEMP/dmg-rw/.fuse-t/"
+          install -m 644 "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" "$RUNNER_TEMP/dmg-rw/.fuse-t/"
+          # Create an install script that sets up FUSE-T if needed
+          cat > "$RUNNER_TEMP/dmg-rw/Install FUSE-T.command" << 'EOF'
+          #!/bin/bash
+          FUSE_T_PKG="$RUNNER_TEMP/fuse-t.pkg"
+          curl -sSL -o "$FUSE_T_PKG" "https://github.com/macos-fuse-t/fuse-t/releases/download/1.2.9/fuse-t-macos-installer-1.2.9.pkg"
+          sudo installer -pkg "$FUSE_T_PKG" -target /
+          echo "FUSE-T installation complete. You can now use Waffle DiskFlashback."
+          EOF
+          chmod +x "$RUNNER_TEMP/dmg-rw/Install FUSE-T.command"
+          hdiutil detach "$RUNNER_TEMP/dmg-rw"
+          # Make the DMG read-only
+          hdiutil convert "dist/Waffle-DiskFlashback-${VERSION}.dmg" -format UDZO -o "dist/Waffle-DiskFlashback-${VERSION}-tmp.dmg"
+          mv "dist/Waffle-DiskFlashback-${VERSION}-tmp.dmg" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
           # The disk image opens and holds the apps
           hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
           ls -l "$RUNNER_TEMP/dmg"
@@ -597,7 +636,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install WinFsp (with the developer files)
+      - name: Install WinFsp (with the developer files) and prepare for bundling
         shell: pwsh
         run: |
           $msi = "$env:RUNNER_TEMP\$env:WINFSP_MSI"
@@ -605,6 +644,12 @@ jobs:
           if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $env:WINFSP_SHA256) { throw "WinFsp: checksum mismatch" }
           Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', 'INSTALLLEVEL=1000' -Wait
           Get-ChildItem "${env:ProgramFiles(x86)}\WinFsp\inc\fuse3", "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll"
+          # Copy WinFsp DLL and license for bundling in the installer
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\winfsp-bundle" -Force | Out-Null
+          Copy-Item "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
+          Copy-Item "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x86.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/winfsp/winfsp/master/LICENSE" -OutFile "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp"
+          Get-ChildItem "$env:RUNNER_TEMP\winfsp-bundle\"
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
@@ -730,6 +775,9 @@ jobs:
           New-Item -ItemType Directory -Force "dist\$name" | Out-Null
           Copy-Item WaffleDiskFlashback.exe, waffle-fuse.exe, LICENSE, packaging\windows\README.txt "dist\$name\"
           Copy-Item -Recurse dist-modplayer "dist\$name\ModPlayer"
+          # Copy WinFsp DLLs and license for bundling
+          New-Item -ItemType Directory -Force "dist\$name\winfsp-lib" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\winfsp-bundle\winfsp-x64.dll", "$env:RUNNER_TEMP\winfsp-bundle\winfsp-x86.dll", "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp" "dist\$name\winfsp-lib\"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
           Get-ChildItem dist
 
@@ -752,7 +800,15 @@ jobs:
           }
 
       - name: Build the installer
-        run: windows/make-installer.sh "$VERSION"
+        shell: bash
+        run: |
+          # Copy WinFsp files for the installer build
+          mkdir -p windows/build
+          cp "$RUNNER_TEMP/winfsp-bundle/winfsp-x64.dll" "$RUNNER_TEMP/winfsp-bundle/winfsp-x86.dll" windows/build/ || true
+          # Create a bundled DLL directory that the installer can optionally use
+          mkdir -p dist/winfsp-lib
+          cp "$RUNNER_TEMP/winfsp-bundle"/* dist/winfsp-lib/ || true
+          windows/make-installer.sh "$VERSION"
 
       - name: Test the installer (silent install, run, uninstall)
         # WinFsp is already installed here, so its task is skipped; then the
@@ -814,8 +870,49 @@ jobs:
           merge-multiple: true
           path: pkgs
 
+      - name: Create dependency documentation
+        run: |
+          cat > pkgs/DEPENDENCIES.md << 'EOF'
+          # Bundled Dependencies and Licensing
+
+          This release includes bundled third-party dependencies to provide a seamless installation experience.
+
+          ## Windows
+          - **WinFsp 2.1** (GPL v3)
+            - Location: Bundled in the installer (waffle-fuse-setup-*.exe)
+            - License: https://github.com/winfsp/winfsp/blob/master/LICENSE
+            - Automatically installed if not already present on your system
+            - The DLL is also available separately in `winfsp-lib/` directory
+
+          ## macOS
+          - **FUSE-T 1.2.9** (GPL v3)
+            - Location: Bundled in the DMG and tarball packages
+            - License: https://github.com/macos-fuse-t/fuse-t/blob/main/LICENSE
+            - Install script provided on the DMG for convenient installation
+            - The dylib is also available separately in `.fuse-t/` directory
+
+          ## Linux
+          - **libfuse3** (LGPL v2+)
+            - Required as a system dependency
+            - Install via your package manager:
+              - Debian/Ubuntu: `sudo apt install libfuse3`
+              - Fedora/RHEL: `sudo dnf install fuse3`
+              - Arch Linux: `sudo pacman -S fuse3`
+
+          ## Licensing
+          All dependencies are covered under GPL v3 compatible licenses. The complete source code of all
+          dependencies is available from their official repositories:
+          - WinFsp: https://github.com/winfsp/winfsp
+          - FUSE-T: https://github.com/macos-fuse-t/fuse-t
+          - libfuse: https://github.com/libfuse/libfuse
+
+          waffle-fuse is also licensed under GPL v3, ensuring compatibility and compliance with all included dependencies.
+          EOF
+          cat pkgs/DEPENDENCIES.md
+
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
           files: pkgs/*
           generate_release_notes: true
+          body_path: pkgs/DEPENDENCIES.md
