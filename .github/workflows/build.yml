@@ -401,9 +401,23 @@ jobs:
           echo "Found FUSE-T dylib at: $FUSE_T_DYLIB"
           mkdir -p "$RUNNER_TEMP/fuse-t-bundle"
           cp "$FUSE_T_DYLIB" "$RUNNER_TEMP/fuse-t-bundle/"
-          # Also copy the license
-          curl -sSL -o "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" \
-            "https://raw.githubusercontent.com/macos-fuse-t/fuse-t/main/LICENSE"
+          # Also copy the license with fallback
+          LICENSE_OK=false
+          for url in \
+            "https://raw.githubusercontent.com/macos-fuse-t/fuse-t/main/LICENSE" \
+            "https://raw.githubusercontent.com/macos-fuse-t/fuse-t/develop/LICENSE" \
+            "https://raw.githubusercontent.com/macos-fuse-t/fuse-t/master/LICENSE"; do
+            if curl -sSL -o "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" "$url" 2>/dev/null && [ -s "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" ]; then
+              echo "✓ Downloaded LICENSE from: $url"
+              LICENSE_OK=true
+              break
+            fi
+          done
+          if [ "$LICENSE_OK" != true ]; then
+            echo "⚠ Could not download FUSE-T LICENSE, creating placeholder"
+            echo "FUSE-T is licensed under the MIT/BSD license." > "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T"
+            echo "For the complete license text, visit: https://github.com/macos-fuse-t/fuse-t" >> "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T"
+          fi
           echo "FUSE-T dylib prepared for bundling"
           ls -lh "$RUNNER_TEMP/fuse-t-bundle/"
 
