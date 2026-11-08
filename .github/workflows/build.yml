@@ -388,12 +388,17 @@ jobs:
 
       - name: Prepare FUSE-T for bundling
         run: |
-          # Extract and verify FUSE-T dylib for bundling
-          FUSE_T_DYLIB="/usr/local/lib/libfuse3.dylib"
-          if [ ! -f "$FUSE_T_DYLIB" ]; then
-            echo "::error::FUSE-T dylib not found at $FUSE_T_DYLIB"
+          # Find FUSE-T dylib (may vary by architecture/macOS version)
+          FUSE_T_DYLIB=$(find /usr/local -name "libfuse3*.dylib" -type f 2>/dev/null | head -1)
+          if [ -z "$FUSE_T_DYLIB" ]; then
+            # Also check Homebrew alternative path for Apple Silicon
+            FUSE_T_DYLIB=$(find /opt/homebrew -name "libfuse3*.dylib" -type f 2>/dev/null | head -1)
+          fi
+          if [ -z "$FUSE_T_DYLIB" ]; then
+            echo "::error::FUSE-T dylib not found in /usr/local or /opt/homebrew"
             exit 1
           fi
+          echo "Found FUSE-T dylib at: $FUSE_T_DYLIB"
           mkdir -p "$RUNNER_TEMP/fuse-t-bundle"
           cp "$FUSE_T_DYLIB" "$RUNNER_TEMP/fuse-t-bundle/"
           # Also copy the license
@@ -643,11 +648,24 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v$env:WINFSP_VERSION/$env:WINFSP_MSI" -OutFile $msi
           if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $env:WINFSP_SHA256) { throw "WinFsp: checksum mismatch" }
           Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', 'INSTALLLEVEL=1000' -Wait
-          Get-ChildItem "${env:ProgramFiles(x86)}\WinFsp\inc\fuse3", "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll"
+          
+          # Verify installation
+          $winfspDir = if (Test-Path "${env:ProgramFiles(x86)}\WinFsp") {
+            "${env:ProgramFiles(x86)}\WinFsp"
+          } elseif (Test-Path "$env:ProgramFiles\WinFsp") {
+            "$env:ProgramFiles\WinFsp"
+          } else {
+            Write-Error "WinFsp installation directory not found"
+            exit 1
+          }
+          
+          Write-Host "WinFsp directory: $winfspDir"
+          Get-ChildItem "$winfspDir\inc\fuse3", "$winfspDir\bin\winfsp-x64.dll"
+          
           # Copy WinFsp DLL and license for bundling in the installer
           New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\winfsp-bundle" -Force | Out-Null
-          Copy-Item "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
-          Copy-Item "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x86.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
+          Copy-Item "$winfspDir\bin\winfsp-x64.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
+          Copy-Item "$winfspDir\bin\winfsp-x86.dll" "$env:RUNNER_TEMP\winfsp-bundle\" -ErrorAction SilentlyContinue
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/winfsp/winfsp/master/LICENSE" -OutFile "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp"
           Get-ChildItem "$env:RUNNER_TEMP\winfsp-bundle\"
 
