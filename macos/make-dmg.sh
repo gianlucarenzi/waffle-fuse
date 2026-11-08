@@ -18,6 +18,8 @@ for more in "$@"; do cp -R "$more" "$SRC/"; done
 ln -s /Applications "$SRC/Applications"
 cp "$HERE/dmg-readme.txt" "$SRC/Read me first.txt"
 rm -f "$DMG"
-hdiutil create -volname "Waffle DiskFlashback" -srcfolder "$SRC" -fs HFS+ -format UDZO -ov "$DMG"
+# Create a writable image first: CI adds bundled FUSE-T files before converting
+# it to the final compressed read-only DMG.
+hdiutil create -volname "Waffle DiskFlashback" -srcfolder "$SRC" -fs HFS+ -format UDRW -ov "$DMG"
 rm -rf "$SRC"
 echo "Created $DMG"
