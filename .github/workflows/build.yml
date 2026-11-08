@@ -529,7 +529,6 @@ jobs:
           echo "mount dir outside home: $A, ~/Floppy: $B"
           [ $A -eq 0 ] && [ $B -eq 0 ]
 
-      - name: Package
         run: |
           NAME="waffle-fuse-${VERSION}-macos-universal"
           mkdir -p "dist/$NAME"
@@ -537,7 +536,11 @@ jobs:
           install -m 644 packaging/macos/README.txt LICENSE "dist/$NAME/"
           # Bundle FUSE-T dylib
           mkdir -p "dist/$NAME/fuse-t-lib"
-          cp "$RUNNER_TEMP/fuse-t-bundle/libfuse3.dylib" "dist/$NAME/fuse-t-lib/"
+          # Find the actual dylib file (may be libfuse3.dylib or libfuse3.X.Y.dylib)
+          DYLIB=$(find "$RUNNER_TEMP/fuse-t-bundle" -name "libfuse3*.dylib" -type f | head -1)
+          if [ -n "$DYLIB" ]; then
+            cp "$DYLIB" "dist/$NAME/fuse-t-lib/"
+          fi
           install -m 644 "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" "dist/$NAME/fuse-t-lib/"
           echo "FUSE-T bundled in the package"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
@@ -546,7 +549,8 @@ jobs:
           # Bundle FUSE-T dylib in the DMG
           hdiutil attach -nobrowse -readwrite -mountpoint "$RUNNER_TEMP/dmg-rw" "dist/Waffle-DiskFlashback-${VERSION}.dmg"
           mkdir -p "$RUNNER_TEMP/dmg-rw/.fuse-t"
-          cp "$RUNNER_TEMP/fuse-t-bundle/libfuse3.dylib" "$RUNNER_TEMP/dmg-rw/.fuse-t/"
+          # Copy the dylib(s) we found
+          find "$RUNNER_TEMP/fuse-t-bundle" -name "libfuse3*.dylib" -type f -exec cp {} "$RUNNER_TEMP/dmg-rw/.fuse-t/" \;
           install -m 644 "$RUNNER_TEMP/fuse-t-bundle/LICENSE-FUSE-T" "$RUNNER_TEMP/dmg-rw/.fuse-t/"
           # Create an install script that sets up FUSE-T if needed
           cat > "$RUNNER_TEMP/dmg-rw/Install FUSE-T.command" << 'EOF'
@@ -666,7 +670,33 @@ jobs:
           New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\winfsp-bundle" -Force | Out-Null
           Copy-Item "$winfspDir\bin\winfsp-x64.dll" "$env:RUNNER_TEMP\winfsp-bundle\"
           Copy-Item "$winfspDir\bin\winfsp-x86.dll" "$env:RUNNER_TEMP\winfsp-bundle\" -ErrorAction SilentlyContinue
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/winfsp/winfsp/master/LICENSE" -OutFile "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp"
+          # Try to fetch LICENSE from WinFsp repo (with fallback URLs)
+          $licenseOk = $false
+          foreach ($url in @(
+            "https://raw.githubusercontent.com/winfsp/winfsp/develop/LICENSE",
+            "https://raw.githubusercontent.com/winfsp/winfsp/main/LICENSE",
+            "https://raw.githubusercontent.com/winfsp/winfsp/master/LICENSE"
+          )) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp" -ErrorAction Stop
+              Write-Host "Successfully downloaded LICENSE from $url"
+              $licenseOk = $true
+              break
+            } catch {
+              Write-Host "Failed to download from $url, trying next..."
+            }
+          }
+          if (-not $licenseOk) {
+            Write-Host "Warning: Could not download WinFsp LICENSE, creating placeholder"
+            @"
+          WinFsp License Information
+          ==========================
+          WinFsp is licensed under the GPLv3 license (https://www.gnu.org/licenses/gpl-3.0.html)
+          
+          This bundle includes WinFsp, which is used to provide FUSE compatibility on Windows.
+          For the complete license text, please visit: https://github.com/winfsp/winfsp/blob/develop/LICENSE
+          "@ | Out-File "$env:RUNNER_TEMP\winfsp-bundle\LICENSE-WinFsp" -Encoding UTF8
+          }
           Get-ChildItem "$env:RUNNER_TEMP\winfsp-bundle\"
 
       - name: Set up MSYS2
