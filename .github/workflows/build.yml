@@ -529,6 +529,8 @@ jobs:
           echo "mount dir outside home: $A, ~/Floppy: $B"
           [ $A -eq 0 ] && [ $B -eq 0 ]
 
+      - name: Package
+        timeout-minutes: 20
         run: |
           NAME="waffle-fuse-${VERSION}-macos-universal"
           mkdir -p "dist/$NAME"
